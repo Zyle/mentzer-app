@@ -101,11 +101,6 @@ export default function App() {
 
   const checkOnboarding = async (userId) => {
     try {
-      // DEV: always show onboarding
-      setNeedsOnboarding(true);
-      setLoading(false);
-      return;
-
       const { data } = await supabase
         .from('profiles')
         .select('name, age, sex, height_cm, bodyweight_kg, goal, experience_level, routine')

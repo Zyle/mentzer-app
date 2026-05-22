@@ -71,7 +71,9 @@ export default function App() {
   const [needsRoutine, setNeedsRoutine]         = useState(false);
 
   useEffect(() => {
-    const timeout = setTimeout(() => setLoading(false), 5000);
+    // Safety net — never get stuck on the spinner longer than 8 seconds
+    const timeout = setTimeout(() => setLoading(false), 8000);
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       clearTimeout(timeout);
       setSession(session);

@@ -264,8 +264,8 @@ const styles = StyleSheet.create({
   // Circular progress
   progressTrack:    { position: 'absolute', top: 0, left: 0 },
   progressHalfClip: { position: 'absolute', top: 0, overflow: 'hidden' },
-  progressHalf:     { position: 'absolute', top: 0, left: 0 },
-  progressHalfLeft: { position: 'absolute', top: 0, right: 0 },
+  progressHalf:     { position: 'absolute', top: 0, right: 0 },
+  progressHalfLeft: { position: 'absolute', top: 0, left: 0 },
   progressCenter:   { position: 'absolute', top: 0, left: 0, justifyContent: 'center', alignItems: 'center' },
   circlePercent:    { fontSize: 26, fontWeight: FONT.black },
   circleLabel:      { color: COLORS.textDim, fontSize: 8, letterSpacing: 2, fontWeight: FONT.semibold, marginTop: 2 },

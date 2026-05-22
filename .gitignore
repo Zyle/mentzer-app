@@ -30,7 +30,11 @@ yarn-error.*
 .DS_Store
 *.pem
 
+# source material (PDFs — kept local only)
+docs/
+
 # local env files
+.env
 .env*.local
 
 # typescript

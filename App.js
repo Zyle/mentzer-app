@@ -4,12 +4,16 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text, View, ActivityIndicator } from 'react-native';
 import { supabase } from './src/lib/supabase';
+import ErrorBoundary from './src/components/ErrorBoundary';
 
 import LoginScreen from './src/screens/LoginScreen';
+import OnboardingScreen from './src/screens/OnboardingScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import WorkoutScreen from './src/screens/WorkoutScreen';
 import ProgressScreen from './src/screens/ProgressScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
+import WorkoutHistoryScreen from './src/screens/WorkoutHistoryScreen';
+import ExerciseSelectionScreen from './src/screens/ExerciseSelectionScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -47,6 +51,11 @@ function TabNavigator() {
         options={{ tabBarLabel: 'PROGRESS', tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>📈</Text> }}
       />
       <Tab.Screen
+        name="History"
+        component={WorkoutHistoryScreen}
+        options={{ tabBarLabel: 'HISTORY', tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>📋</Text> }}
+      />
+      <Tab.Screen
         name="Profile"
         component={ProfileScreen}
         options={{ tabBarLabel: 'PROFILE', tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>👤</Text> }}
@@ -56,21 +65,74 @@ function TabNavigator() {
 }
 
 export default function App() {
-  const [session, setSession] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [session, setSession]                   = useState(null);
+  const [loading, setLoading]                   = useState(true);
+  const [needsOnboarding, setNeedsOnboarding]   = useState(false);
+  const [needsRoutine, setNeedsRoutine]         = useState(false);
 
   useEffect(() => {
+    // Safety net — never get stuck on the spinner longer than 8 seconds
+    const timeout = setTimeout(() => setLoading(false), 8000);
+
     supabase.auth.getSession().then(({ data: { session } }) => {
+      clearTimeout(timeout);
       setSession(session);
+      if (session) checkOnboarding(session.user.id);
+      else setLoading(false);
+    }).catch(() => {
+      clearTimeout(timeout);
       setLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      if (session) checkOnboarding(session.user.id);
+      else setLoading(false);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      clearTimeout(timeout);
+      subscription.unsubscribe();
+    };
   }, []);
+
+  const checkOnboarding = async (userId) => {
+    try {
+      // DEV: always show onboarding
+      setNeedsOnboarding(true);
+      setLoading(false);
+      return;
+
+      const { data } = await supabase
+        .from('profiles')
+        .select('name, age, sex, height_cm, bodyweight_kg, goal, experience_level, routine')
+        .eq('id', userId)
+        .single();
+
+      const profileComplete = data &&
+        data.name && data.age && data.sex &&
+        data.height_cm && data.bodyweight_kg &&
+        data.goal && data.experience_level;
+
+      if (!profileComplete) {
+        setNeedsOnboarding(true);
+      } else if (!data.routine || data.routine.length === 0) {
+        setNeedsRoutine(true);
+      }
+      setLoading(false);
+    } catch (_) {
+      setLoading(false);
+    }
+  };
+
+  const handleOnboardingComplete = () => {
+    setNeedsOnboarding(false);
+    setNeedsRoutine(true);   // always go to routine selection after fresh onboarding
+  };
+
+  const handleRoutineComplete = () => {
+    setNeedsRoutine(false);
+  };
 
   if (loading) {
     return (
@@ -80,18 +142,28 @@ export default function App() {
     );
   }
 
+  if (session && needsOnboarding) {
+    return <OnboardingScreen onComplete={handleOnboardingComplete} />;
+  }
+
+  if (session && needsRoutine) {
+    return <ExerciseSelectionScreen onComplete={handleRoutineComplete} />;
+  }
+
   return (
-    <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {!session ? (
-          <Stack.Screen name="Login" component={LoginScreen} />
-        ) : (
-          <>
-            <Stack.Screen name="Main" component={TabNavigator} />
-            <Stack.Screen name="Workout" component={WorkoutScreen} />
-          </>
-        )}
-      </Stack.Navigator>
-    </NavigationContainer>
+    <ErrorBoundary>
+      <NavigationContainer>
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          {!session ? (
+            <Stack.Screen name="Login" component={LoginScreen} />
+          ) : (
+            <>
+              <Stack.Screen name="Main" component={TabNavigator} />
+              <Stack.Screen name="Workout" component={WorkoutScreen} />
+            </>
+          )}
+        </Stack.Navigator>
+      </NavigationContainer>
+    </ErrorBoundary>
   );
 }

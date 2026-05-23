@@ -25,43 +25,50 @@ function getPhase(totalHours) {
   return RECOVERY_PHASES[RECOVERY_PHASES.length - 1];
 }
 
-// Pure RN circular progress using two half-circle masks
+// Circular progress fills CW from 12 o'clock.
+//
+// How it works: a gold disc sits behind two gray cover rectangles. Each cover is
+// inside a rotating full-size wrapper whose center aligns with the container center.
+// As the wrapper rotates CCW, its rectangle sweeps out of the half-clip, exposing gold.
+// Right cover: 0°→-180° as pct 0→0.5 (fills 12→6 o'clock)
+// Left cover:  0°→-180° as pct 0.5→1  (fills 6→12 o'clock)
 function CircularProgress({ progress, color, size = 130, strokeWidth = 12 }) {
   const pct = Math.min(Math.max(progress, 0), 1);
   const half = size / 2;
+  const innerSize = size - strokeWidth * 2;
 
-  const leftDeg  = pct <= 0.5 ? 0 : (pct - 0.5) * 360;
-  const rightDeg = pct <= 0.5 ? pct * 360 : 180;
+  const rightCoverDeg = pct <= 0.5 ? -(pct * 360) : -180;
+  const leftCoverDeg  = pct <= 0.5 ? 0 : -((pct - 0.5) * 360);
 
   return (
     <View style={{ width: size, height: size }}>
-      {/* Background track */}
-      <View style={[styles.progressTrack, {
-        width: size, height: size, borderRadius: half,
-        borderWidth: strokeWidth, borderColor: COLORS.border,
-      }]} />
+      {/* Gray track disc */}
+      <View style={{ position: 'absolute', top: 0, left: 0, width: size, height: size, borderRadius: half, backgroundColor: COLORS.border }} />
+      {/* Gold disc — gray covers hide the unfilled portion */}
+      <View style={{ position: 'absolute', top: 0, left: 0, width: size, height: size, borderRadius: half, backgroundColor: color }} />
 
-      {/* Right half */}
-      <View style={[styles.progressHalfClip, { width: half, height: size, left: half }]}>
-        <View style={[styles.progressHalf, {
-          width: size, height: size, borderRadius: half,
-          borderWidth: strokeWidth, borderColor: color,
-          transform: [{ rotate: `${rightDeg}deg` }],
-        }]} />
+      {/* Right gray cover — clipped to right half, sweeps CCW to reveal gold CW */}
+      <View style={{ position: 'absolute', top: 0, left: half, width: half, height: size, overflow: 'hidden' }}>
+        <View style={{ position: 'absolute', top: 0, left: -half, width: size, height: size, transform: [{ rotate: `${rightCoverDeg}deg` }] }}>
+          <View style={{ position: 'absolute', top: 0, right: 0, width: half, height: size, backgroundColor: COLORS.border }} />
+        </View>
       </View>
 
-      {/* Left half (only shown when > 50%) */}
-      {pct > 0.5 && (
-        <View style={[styles.progressHalfClip, { width: half, height: size, left: 0 }]}>
-          <View style={[styles.progressHalfLeft, {
-            width: size, height: size, borderRadius: half,
-            borderWidth: strokeWidth, borderColor: color,
-            transform: [{ rotate: `${leftDeg}deg` }],
-          }]} />
+      {/* Left gray cover — clipped to left half, sweeps CCW to reveal gold CW */}
+      <View style={{ position: 'absolute', top: 0, left: 0, width: half, height: size, overflow: 'hidden' }}>
+        <View style={{ position: 'absolute', top: 0, left: 0, width: size, height: size, transform: [{ rotate: `${leftCoverDeg}deg` }] }}>
+          <View style={{ position: 'absolute', top: 0, left: 0, width: half, height: size, backgroundColor: COLORS.border }} />
         </View>
-      )}
+      </View>
 
-      {/* Center */}
+      {/* Center hole — creates ring/donut appearance */}
+      <View style={{
+        position: 'absolute', top: strokeWidth, left: strokeWidth,
+        width: innerSize, height: innerSize, borderRadius: innerSize / 2,
+        backgroundColor: COLORS.surface,
+      }} />
+
+      {/* Text */}
       <View style={[styles.progressCenter, { width: size, height: size }]}>
         <Text style={[styles.circlePercent, { color }]}>{Math.round(pct * 100)}%</Text>
         <Text style={styles.circleLabel}>RECOVERED</Text>
@@ -179,7 +186,7 @@ export default function HomeScreen({ navigation }) {
         <Text style={styles.sectionLabel}>RECOVERY STATUS</Text>
 
         <View style={styles.recoveryBody}>
-          <CircularProgress progress={progress} color={phase.color} />
+          <CircularProgress progress={progress} color={COLORS.gold} />
           <View style={styles.phaseInfo}>
             <View style={[styles.phaseBadge, { backgroundColor: phase.color + '22', borderColor: phase.color + '55' }]}>
               <Text style={[styles.phaseLabel, { color: phase.color }]}>{phase.label}</Text>
@@ -262,13 +269,9 @@ const styles = StyleSheet.create({
   recoveryBody:   { flexDirection: 'row', alignItems: 'center', gap: SPACING.lg, marginBottom: SPACING.lg },
 
   // Circular progress
-  progressTrack:    { position: 'absolute', top: 0, left: 0 },
-  progressHalfClip: { position: 'absolute', top: 0, overflow: 'hidden' },
-  progressHalf:     { position: 'absolute', top: 0, left: 0 },
-  progressHalfLeft: { position: 'absolute', top: 0, right: 0 },
   progressCenter:   { position: 'absolute', top: 0, left: 0, justifyContent: 'center', alignItems: 'center' },
   circlePercent:    { fontSize: 26, fontWeight: FONT.black },
-  circleLabel:      { color: COLORS.textDim, fontSize: 8, letterSpacing: 2, fontWeight: FONT.semibold, marginTop: 2 },
+  circleLabel:      { color: COLORS.gold, fontSize: 8, letterSpacing: 2, fontWeight: FONT.semibold, marginTop: 2 },
 
   phaseInfo:      { flex: 1 },
   phaseBadge:     { alignSelf: 'flex-start', borderRadius: RADIUS.sm, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, marginBottom: 10 },

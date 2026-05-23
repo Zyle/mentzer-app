@@ -85,7 +85,7 @@ export default function App() {
     }
 
     // ── Production auth flow ───────────────────────────────────────────────
-    const timeout = setTimeout(() => setLoading(false), 8000);
+    const timeout = setTimeout(() => setLoading(false), 5000);
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       clearTimeout(timeout);

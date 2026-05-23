@@ -5,12 +5,14 @@ import {
   ActivityIndicator, Alert,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function LoginScreen({ navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleAuth = async () => {
     if (!email || !password) {
@@ -56,14 +58,22 @@ export default function LoginScreen({ navigation }) {
             keyboardType="email-address"
             autoCapitalize="none"
           />
-          <TextInput
-            style={styles.input}
-            placeholder="Password"
-            placeholderTextColor="#666"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
+          <View style={styles.passwordRow}>
+            <TextInput
+              style={styles.passwordInput}
+              placeholder="Password"
+              placeholderTextColor="#666"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry={!showPassword}
+            />
+            <TouchableOpacity
+              style={styles.eyeBtn}
+              onPress={() => setShowPassword(p => !p)}
+            >
+              <Ionicons name={showPassword ? 'eye-off' : 'eye'} size={20} color="#666" />
+            </TouchableOpacity>
+          </View>
 
           <TouchableOpacity
             style={styles.button}
@@ -83,9 +93,14 @@ export default function LoginScreen({ navigation }) {
             style={styles.switchButton}
             onPress={() => setIsSignUp(!isSignUp)}
           >
-            <Text style={styles.switchText}>
-              {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={styles.switchText}>
+                {isSignUp ? 'Already have an account? ' : 'No account yet? '}
+              </Text>
+              <Text style={styles.switchTextHighlight}>
+                {isSignUp ? 'Sign in' : 'Sign up'}
+              </Text>
+            </View>
           </TouchableOpacity>
         </View>
       </View>
@@ -139,6 +154,26 @@ const styles = StyleSheet.create({
     fontSize: 15,
     marginBottom: 12,
   },
+  passwordRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1a1a1a',
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+    borderRadius: 4,
+    marginBottom: 12,
+  },
+  passwordInput: {
+    flex: 1,
+    color: '#ffffff',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 15,
+  },
+  eyeBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
   button: {
     backgroundColor: '#c9a84c',
     paddingVertical: 16,
@@ -157,7 +192,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   switchText: {
-    color: '#666',
+    color: '#888',
+    fontSize: 13,
+    flexWrap: 'wrap',
+  },
+  switchTextHighlight: {
+    color: '#c9a84c',
+    fontWeight: '700',
     fontSize: 13,
   },
 });

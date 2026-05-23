@@ -111,35 +111,34 @@ export default function WorkoutHistoryScreen() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
-      const [{ data: workouts }, { data: sets }] = await Promise.all([
-        supabase
-          .from('workouts')
-          .select('id, date, created_at')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('sets')
-          .select('workout_id, exercise_name, weight_kg, reps, date')
-          .eq('user_id', user.id)
-          .order('date', { ascending: true }),
+      const [workoutsRes, setsRes] = await Promise.all([
+        supabase.from('workouts').select('*').eq('user_id', user.id),
+        supabase.from('sets').select('*').eq('user_id', user.id),
       ]);
 
-      if (workouts && sets) {
-        const merged = workouts
-          .map(w => {
-            const wSets = sets.filter(s => s.workout_id === w.id);
-            return {
-              ...w,
-              date: w.date || w.created_at,
-              allSets:   wSets,
-              exercises: groupByExercise(wSets),
-            };
-          })
-          .filter(w => w.exercises.length > 0);
-        setHistory(merged);
-      }
-    } catch (_) {
-      // silent fail — empty state handles it
+      if (workoutsRes.error) console.error('workouts fetch error:', workoutsRes.error);
+      if (setsRes.error)     console.error('sets fetch error:', setsRes.error);
+
+      // Sort in JS — avoids depending on any specific timestamp column name
+      const ts = r => r.created_at || r.date || r.inserted_at || '';
+      const workouts = (workoutsRes.data || []).sort((a, b) => ts(b).localeCompare(ts(a)));
+      const sets     = (setsRes.data     || []).sort((a, b) => ts(a).localeCompare(ts(b)));
+
+      const merged = workouts
+        .map(w => {
+          const wSets = sets.filter(s => s.workout_id === w.id);
+          return {
+            ...w,
+            date:      w.date || w.created_at,
+            allSets:   wSets,
+            exercises: groupByExercise(wSets),
+          };
+        })
+        .filter(w => w.exercises.length > 0);
+      setHistory(merged);
+
+    } catch (e) {
+      console.error('loadData error:', e);
     } finally {
       setLoading(false);
     }

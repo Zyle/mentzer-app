@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { COLORS, FONT } from '../theme';
 
@@ -23,8 +23,12 @@ export default function CalorieSlider({
   onChange,
   color = COLORS.gold,
   zones,
+  onDragStart,
+  onDragEnd,
 }) {
   const [trackWidth, setTrackWidth] = useState(0);
+  const trackRef   = useRef(null);
+  const trackPageX = useRef(0);
 
   const pct = trackWidth > 0
     ? Math.max(0, Math.min(1, (value - min) / (max - min)))
@@ -34,12 +38,30 @@ export default function CalorieSlider({
     ? Math.max(0, Math.min(pct * trackWidth - 12, trackWidth - 24))
     : 0;
 
-  const handleTouch = (e) => {
+  const computeValue = (pageX) => {
     if (trackWidth === 0) return;
-    const x = Math.max(0, Math.min(e.nativeEvent.locationX, trackWidth));
+    const x = Math.max(0, Math.min(pageX - trackPageX.current, trackWidth));
     const rawValue = min + (x / trackWidth) * (max - min);
     const steppedValue = Math.round(rawValue / step) * step;
     onChange(Math.max(min, Math.min(max, steppedValue)));
+  };
+
+  const handleGrant = (e) => {
+    const pageX = e.nativeEvent.pageX;
+    onDragStart?.();
+    trackRef.current?.measure((_fx, _fy, width, _h, px) => {
+      trackPageX.current = px;
+      if (width > 0) setTrackWidth(width);
+      computeValue(pageX);
+    });
+  };
+
+  const handleMove = (e) => {
+    computeValue(e.nativeEvent.pageX);
+  };
+
+  const handleRelease = () => {
+    onDragEnd?.();
   };
 
   return (
@@ -52,12 +74,23 @@ export default function CalorieSlider({
 
       {/* Track — responds to touch and drag */}
       <View
+        ref={trackRef}
         style={styles.trackWrapper}
-        onLayout={(e) => setTrackWidth(e.nativeEvent.layout.width)}
+        onLayout={() => {
+          trackRef.current?.measure((_fx, _fy, width, _height, px) => {
+            setTrackWidth(width);
+            trackPageX.current = px;
+          });
+        }}
         onStartShouldSetResponder={() => true}
+        onStartShouldSetResponderCapture={() => true}
         onMoveShouldSetResponder={() => true}
-        onResponderGrant={handleTouch}
-        onResponderMove={handleTouch}
+        onMoveShouldSetResponderCapture={() => true}
+        onResponderTerminationRequest={() => false}
+        onResponderGrant={handleGrant}
+        onResponderMove={handleMove}
+        onResponderRelease={handleRelease}
+        onResponderTerminate={handleRelease}
       >
         <View style={styles.track}>
           <View style={[styles.fill, { width: `${pct * 100}%`, backgroundColor: color }]} />

@@ -102,6 +102,7 @@ export default function OnboardingScreen({ onComplete }) {
   const [calorieAdjustment, setCalorieAdjustment] = useState(150);
   const [experience, setExperience]           = useState('');
   const [saving, setSaving]                   = useState(false);
+  const [scrollEnabled, setScrollEnabled]     = useState(true);
 
   // ── Unit toggle ──────────────────────────────────────────────────────────
   const toggleUnits = () => {
@@ -203,7 +204,7 @@ export default function OnboardingScreen({ onComplete }) {
   const getGoalLabel = () => {
     if (goal === 'bulk') return 'Muscle Gain';
     if (goal === 'cut')  return 'Fat Loss';
-    return 'Maintain';
+    return 'Recomp / Maintain';
   };
 
   const getExperienceDescription = () => {
@@ -217,22 +218,25 @@ export default function OnboardingScreen({ onComplete }) {
     setSaving(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      await supabase.from('profiles').upsert({
-        id: user.id,
-        email: user.email,
-        name: name.trim(),
-        age: parseInt(age),
-        sex,
-        height_cm:      getHeightCm(),
-        bodyweight_kg:  getWeightKg(),
-        goal,
-        experience_level:   experience,
-        calorie_adjustment: getSignedAdjustment(),
-        last_weight_checkin: new Date().toISOString(),
-      });
+      if (user) {
+        await supabase.from('profiles').upsert({
+          id: user.id,
+          email: user.email,
+          name: name.trim(),
+          age: parseInt(age),
+          sex,
+          height_cm:           getHeightCm(),
+          bodyweight_kg:       getWeightKg(),
+          goal,
+          experience_level:    experience,
+          calorie_adjustment:  getSignedAdjustment(),
+          last_weight_checkin: new Date().toISOString(),
+        });
+      }
       onComplete();
     } catch (e) {
-      Alert.alert('Error', 'Something went wrong. Please try again.');
+      // In dev mode there's no real user — just proceed
+      onComplete();
     } finally {
       setSaving(false);
     }
@@ -252,7 +256,7 @@ export default function OnboardingScreen({ onComplete }) {
         ))}
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" scrollEnabled={scrollEnabled}>
 
         {/* STEP 0 — Welcome */}
         {step === 0 && (
@@ -410,7 +414,7 @@ export default function OnboardingScreen({ onComplete }) {
 
             {[
               { key: 'bulk',     label: 'MUSCLE GAIN', desc: "Build maximum muscle with a calorie surplus. You'll set the exact amount on the next screen." },
-              { key: 'maintain', label: 'MAINTAIN',    desc: 'Build strength and maintain your current weight. Eat at your maintenance calories.' },
+              { key: 'maintain', label: 'RECOMP / MAINTAIN', desc: 'Lose fat and build muscle simultaneously. Eat at maintenance — ideal for beginners and those returning to training.' },
               { key: 'cut',      label: 'FAT LOSS',    desc: "Lose fat while preserving muscle with a calorie deficit. You'll set the exact amount on the next screen." },
             ].map(g => (
               <TouchableOpacity
@@ -434,6 +438,8 @@ export default function OnboardingScreen({ onComplete }) {
             </Text>
             <View style={styles.sliderCard}>
               <CalorieSlider
+                onDragStart={() => setScrollEnabled(false)}
+                onDragEnd={() => setScrollEnabled(true)}
                 value={calorieAdjustment}
                 min={50}
                 max={300}
@@ -460,6 +466,8 @@ export default function OnboardingScreen({ onComplete }) {
             </Text>
             <View style={styles.sliderCard}>
               <CalorieSlider
+                onDragStart={() => setScrollEnabled(false)}
+                onDragEnd={() => setScrollEnabled(true)}
                 value={calorieAdjustment}
                 min={100}
                 max={500}
@@ -590,7 +598,7 @@ const styles = StyleSheet.create({
   dot:          { width: 8, height: 8, borderRadius: 4, backgroundColor: '#2a2a2a' },
   dotActive:    { backgroundColor: COLORS.gold },
   content:      { paddingHorizontal: SPACING.xl, paddingBottom: 40 },
-  stepContainer:{ flex: 1 },
+  stepContainer:{ flexShrink: 0 },
 
   logo:    { fontSize: 36, fontWeight: FONT.black, color: COLORS.gold, letterSpacing: 8, marginBottom: 4 },
   logoSub: { fontSize: 10, color: COLORS.textDim, letterSpacing: 4, marginBottom: 40 },
@@ -630,7 +638,7 @@ const styles = StyleSheet.create({
   selectCardActive:  { borderColor: COLORS.gold, backgroundColor: '#1a1500' },
   selectLabel:       { color: COLORS.textDim, fontSize: 13, fontWeight: FONT.bold, letterSpacing: 2, marginBottom: 6 },
   selectLabelActive: { color: COLORS.gold },
-  selectDesc:        { color: COLORS.textMuted, fontSize: 13, lineHeight: 20 },
+  selectDesc:        { color: COLORS.textMuted, fontSize: 13, lineHeight: 20, flexShrink: 1, flexWrap: 'wrap' },
 
   sliderCard:   { backgroundColor: COLORS.surface, borderRadius: RADIUS.xl, padding: SPACING.lg, marginBottom: 16, borderWidth: 1, borderColor: COLORS.border },
   previewCard:  { backgroundColor: '#1a1500', borderRadius: RADIUS.xl, padding: SPACING.lg, alignItems: 'center', borderWidth: 1, borderColor: COLORS.goldBorder },

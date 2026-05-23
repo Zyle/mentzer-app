@@ -64,63 +64,63 @@ export const getRecoveryStatus = (daysSinceWorkout) => {
   if (daysSinceWorkout === 0) {
     return {
       status: 'recovering',
-      message: 'Workout complete. Leave the gym immediately. Growth begins now — not when you train more.',
+      message: 'Leave the gym. Growth begins now — not when you train more.',
       emoji: '💪',
       readyToTrain: false,
     };
   } else if (daysSinceWorkout === 1) {
     return {
       status: 'repairing',
-      message: 'Day 1. Muscle fibres are being repaired. Training again now would be counterproductive. Rest is not laziness — it is the work.',
+      message: 'Muscle fibres are being repaired. Rest is not laziness — it is the work.',
       emoji: '🔧',
       readyToTrain: false,
     };
   } else if (daysSinceWorkout === 2) {
     return {
       status: 'rebuilding',
-      message: 'Day 2. Your body is actively rebuilding muscle tissue beyond its previous state. Any stress today interrupts this process.',
+      message: 'Your body is rebuilding beyond its previous state. Any training today interrupts this.',
       emoji: '⚡',
       readyToTrain: false,
     };
   } else if (daysSinceWorkout === 3) {
     return {
       status: 'growing',
-      message: 'Day 3. Supercompensation is occurring — your muscles are growing stronger than before. Stay out of the gym.',
+      message: 'Supercompensation is occurring. Your muscles are growing stronger. Stay out of the gym.',
       emoji: '📈',
       readyToTrain: false,
     };
   } else if (daysSinceWorkout === 4) {
     return {
       status: 'almost',
-      message: 'Day 4. Recovery is nearly complete. You may train today if you feel fully recovered. When in doubt, wait one more day.',
+      message: 'Recovery is nearly complete. When in doubt, wait one more day.',
       emoji: '🎯',
       readyToTrain: true,
     };
   } else if (daysSinceWorkout === 5) {
     return {
       status: 'ready',
-      message: 'Day 5. Fully recovered. Train today. One set per exercise, maximum intensity, then leave.',
+      message: 'Fully recovered. One set per exercise, maximum intensity, then leave.',
       emoji: '✅',
       readyToTrain: true,
     };
   } else if (daysSinceWorkout === 6) {
     return {
       status: 'ready',
-      message: 'Day 6. Fully recovered and in peak state. Today is ideal for training.',
+      message: 'Peak supercompensation. Today is your ideal training day.',
       emoji: '✅',
       readyToTrain: true,
     };
   } else if (daysSinceWorkout === 7) {
     return {
       status: 'overdue',
-      message: 'Day 7. Train today. Waiting longer will not improve growth further — supercompensation has peaked.',
+      message: 'Train today. Waiting longer will not improve growth — supercompensation has peaked.',
       emoji: '⚠️',
       readyToTrain: true,
     };
   } else {
     return {
       status: 'overdue',
-      message: `Day ${daysSinceWorkout}. You are past your optimal training window. Train as soon as possible.`,
+      message: `Day ${daysSinceWorkout}. You are past your optimal window. Train as soon as possible.`,
       emoji: '🚨',
       readyToTrain: true,
     };

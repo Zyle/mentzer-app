@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Text, View, ActivityIndicator } from 'react-native';
+import { Text, View, ActivityIndicator, Platform } from 'react-native';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as NavigationBar from 'expo-navigation-bar';
 import { supabase } from './src/lib/supabase';
 import ErrorBoundary from './src/components/ErrorBoundary';
 
@@ -19,6 +21,7 @@ const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
 function TabNavigator() {
+  const insets = useSafeAreaInsets();
   return (
     <Tab.Navigator
       screenOptions={{
@@ -27,9 +30,9 @@ function TabNavigator() {
           backgroundColor: '#0a0a0a',
           borderTopColor: '#1a1a1a',
           borderTopWidth: 1,
-          paddingBottom: 8,
+          paddingBottom: 8 + insets.bottom,
           paddingTop: 8,
-          height: 70,
+          height: 70 + insets.bottom,
         },
         tabBarActiveTintColor: '#c9a84c',
         tabBarInactiveTintColor: '#444',
@@ -66,7 +69,7 @@ function TabNavigator() {
 
 // ─── Dev mode ─────────────────────────────────────────────────────────────────
 // Set to 'onboarding', 'exercise', 'main', or false (real auth)
-const DEV_SCREEN = 'main';
+const DEV_SCREEN = false;
 
 export default function App() {
   const [session, setSession]                   = useState(null);
@@ -75,11 +78,18 @@ export default function App() {
   const [needsRoutine, setNeedsRoutine]         = useState(false);
 
   useEffect(() => {
+    if (Platform.OS === 'android') {
+      NavigationBar.setVisibilityAsync('hidden');
+      NavigationBar.setBehaviorAsync('overlay-swipe');
+    }
+  }, []);
+
+  useEffect(() => {
     // DEV: bypass Supabase entirely — jump straight to target screen
     if (DEV_SCREEN) {
-      if (DEV_SCREEN === 'onboarding') setNeedsOnboarding(true);
-      if (DEV_SCREEN === 'exercise')   setNeedsRoutine(true);
-      if (DEV_SCREEN === 'main')       setSession({ user: { id: 'dev' } });
+      if (DEV_SCREEN === 'onboarding') { setNeedsOnboarding(true); setSession({ user: { id: 'dev' } }); }
+      if (DEV_SCREEN === 'exercise')   { setNeedsRoutine(true);   setSession({ user: { id: 'dev' } }); }
+      if (DEV_SCREEN === 'main')       { setSession({ user: { id: 'dev' } }); }
       setLoading(false);
       return;
     }
@@ -159,6 +169,7 @@ export default function App() {
   }
 
   return (
+    <SafeAreaProvider>
     <ErrorBoundary>
       <NavigationContainer>
         <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -173,5 +184,6 @@ export default function App() {
         </Stack.Navigator>
       </NavigationContainer>
     </ErrorBoundary>
+    </SafeAreaProvider>
   );
 }

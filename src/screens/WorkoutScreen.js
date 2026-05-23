@@ -10,16 +10,17 @@ import Card from '../components/Card';
 import { COLORS, FONT, RADIUS, SPACING } from '../theme';
 
 export default function WorkoutScreen({ navigation }) {
-  const [workoutId, setWorkoutId] = useState(null);
-  const [loggedSets, setLoggedSets] = useState([]);
+  const [workoutId, setWorkoutId]           = useState(null);
+  const [loggedSets, setLoggedSets]         = useState([]);
+  const [routine, setRoutine]               = useState([]);   // exercises from saved plan
   const [selectedExercise, setSelectedExercise] = useState(null);
-  const [weight, setWeight] = useState('');
-  const [reps, setReps] = useState('');
+  const [weight, setWeight]                 = useState('');
+  const [reps, setReps]                     = useState('');
   const [showExercisePicker, setShowExercisePicker] = useState(false);
   const [selectedMuscle, setSelectedMuscle] = useState('Legs');
-  const [result, setResult] = useState(null);
-  const [userId, setUserId] = useState(null);
-  const [prevBest, setPrevBest] = useState(null);
+  const [result, setResult]                 = useState(null);
+  const [userId, setUserId]                 = useState(null);
+  const [prevBest, setPrevBest]             = useState(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const timerRef = useRef(null);
 
@@ -37,21 +38,32 @@ export default function WorkoutScreen({ navigation }) {
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
-  // Only fetch user on mount — no DB write until first set is logged
   const initUser = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    setUserId(user.id);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUserId(user.id);
+
+      // Load saved routine from profile
+      const { data: profile } = await supabase
+        .from('profiles').select('routine').eq('id', user.id).single();
+
+      if (profile?.routine?.length) {
+        const matched = profile.routine
+          .map(name => EXERCISES.find(e => e.name === name))
+          .filter(Boolean);
+        setRoutine(matched);
+      }
+    } catch (e) {
+      console.error('initUser error:', e);
+    }
   };
 
-  // Creates a workout record the first time a set is logged, then reuses the same ID
   const ensureWorkout = async (uid) => {
     if (workoutId) return workoutId;
-    const { data: workout } = await supabase
+    const { data: workout, error: wErr } = await supabase
       .from('workouts').insert({ user_id: uid }).select().single();
-    if (workout) {
-      setWorkoutId(workout.id);
-      return workout.id;
-    }
+    if (wErr) console.error('ensureWorkout error:', wErr);
+    if (workout) { setWorkoutId(workout.id); return workout.id; }
     return null;
   };
 
@@ -59,6 +71,8 @@ export default function WorkoutScreen({ navigation }) {
     setSelectedExercise(exercise);
     setShowExercisePicker(false);
     setResult(null);
+    setWeight('');
+    setReps('');
 
     if (userId) {
       const { data: pb } = await supabase
@@ -76,7 +90,7 @@ export default function WorkoutScreen({ navigation }) {
       return;
     }
     const weightNum = parseFloat(weight);
-    const repsNum = parseInt(reps);
+    const repsNum   = parseInt(reps);
     if (isNaN(weightNum) || isNaN(repsNum)) {
       Alert.alert('Invalid input', 'Enter valid numbers for weight and reps.');
       return;
@@ -85,23 +99,22 @@ export default function WorkoutScreen({ navigation }) {
     const analysis = analyzeSet(selectedExercise, weightNum, repsNum, prevBest);
     const wid = await ensureWorkout(userId);
 
-    await supabase.from('sets').insert({
-      user_id: userId,
-      workout_id: wid,
+    const { error: sErr } = await supabase.from('sets').insert({
+      user_id:       userId,
+      workout_id:    wid,
       exercise_name: selectedExercise.name,
-      weight_kg: weightNum,
-      reps: repsNum,
+      weight_kg:     weightNum,
+      reps:          repsNum,
     });
+    if (sErr) console.error('logSet error:', sErr);
 
     const isPR = !prevBest || repsNum > prevBest.reps || weightNum > prevBest.weight_kg;
-
     if (isPR) {
       await supabase.from('personal_bests').upsert({
-        user_id: userId,
+        user_id:       userId,
         exercise_name: selectedExercise.name,
-        weight_kg: weightNum,
-        reps: repsNum,
-        date: new Date().toISOString(),
+        weight_kg:     weightNum,
+        reps:          repsNum,
       }, { onConflict: 'user_id,exercise_name' });
       setPrevBest({ weight_kg: weightNum, reps: repsNum });
     }
@@ -132,15 +145,19 @@ export default function WorkoutScreen({ navigation }) {
 
   const filteredExercises = EXERCISES.filter(e => e.muscle === selectedMuscle);
 
+  // Count logged sets per exercise (for routine cards)
+  const setsForExercise = (name) => loggedSets.filter(s => s.exercise === name).length;
+
   return (
     <View style={styles.container}>
-      {/* Custom header — back, timer, finish */}
+
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Text style={styles.backButton}>← BACK</Text>
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>LOG SET</Text>
+          <Text style={styles.headerTitle}>WORKOUT</Text>
           <View style={styles.timerBadge}>
             <Text style={styles.timerText}>{formatTime(elapsedSeconds)}</Text>
           </View>
@@ -152,97 +169,167 @@ export default function WorkoutScreen({ navigation }) {
 
       <ScrollView style={styles.content} keyboardShouldPersistTaps="handled">
 
-        {/* Exercise Selector */}
-        <TouchableOpacity style={styles.exerciseSelector} onPress={() => setShowExercisePicker(true)} activeOpacity={0.8}>
-          <Text style={styles.fieldLabel}>EXERCISE</Text>
-          <View style={styles.exerciseSelectorRow}>
-            <Text style={[styles.exerciseSelectorValue, !selectedExercise && { color: COLORS.textFaint }]}>
-              {selectedExercise ? selectedExercise.name : 'Select Exercise'}
-            </Text>
-            <Text style={styles.chevron}>›</Text>
-          </View>
-          {selectedExercise && (
-            <Text style={styles.exerciseMeta}>
-              {selectedExercise.hd2Core ? '★ HD2 CORE' : selectedExercise.type === 'isolation' ? 'ISOLATION' : 'COMPOUND'} · {selectedExercise.repRange[0]}-{selectedExercise.repRange[1]} REPS
-            </Text>
-          )}
-        </TouchableOpacity>
+        {/* ── Routine exercises ─────────────────────────────── */}
+        {routine.length > 0 && (
+          <View style={styles.routineSection}>
+            <Text style={styles.routineLabel}>YOUR ROUTINE</Text>
+            {routine.map((ex) => {
+              const isSelected = selectedExercise?.name === ex.name;
+              const setsDone   = setsForExercise(ex.name);
+              return (
+                <TouchableOpacity
+                  key={ex.name}
+                  style={[styles.routineCard, isSelected && styles.routineCardActive]}
+                  onPress={() => selectExercise(ex)}
+                  activeOpacity={0.75}
+                >
+                  <View style={styles.routineCardLeft}>
+                    <Text style={[styles.routineExName, isSelected && styles.routineExNameActive]}>
+                      {ex.name}
+                    </Text>
+                    <Text style={styles.routineExMeta}>
+                      {ex.repRange[0]}–{ex.repRange[1]} reps
+                      {setsDone > 0 ? `  ·  ${setsDone} set${setsDone > 1 ? 's' : ''} logged` : ''}
+                    </Text>
+                  </View>
+                  <View style={styles.routineCardRight}>
+                    {setsDone > 0 ? (
+                      <View style={styles.doneBadge}>
+                        <Text style={styles.doneText}>✓</Text>
+                      </View>
+                    ) : (
+                      <View style={[styles.logBtn, isSelected && styles.logBtnActive]}>
+                        <Text style={[styles.logBtnText, isSelected && styles.logBtnTextActive]}>
+                          {isSelected ? 'SELECTED' : 'LOG'}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
 
-        {/* Previous Best */}
+            {/* Add extra exercise */}
+            <TouchableOpacity
+              style={styles.addExtraBtn}
+              onPress={() => setShowExercisePicker(true)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.addExtraText}>+ ADD EXERCISE</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* If no routine saved yet, show full picker trigger */}
+        {routine.length === 0 && (
+          <TouchableOpacity
+            style={styles.exerciseSelector}
+            onPress={() => setShowExercisePicker(true)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.fieldLabel}>EXERCISE</Text>
+            <View style={styles.exerciseSelectorRow}>
+              <Text style={[styles.exerciseSelectorValue, !selectedExercise && { color: COLORS.textFaint }]}>
+                {selectedExercise ? selectedExercise.name : 'Select Exercise'}
+              </Text>
+              <Text style={styles.chevron}>›</Text>
+            </View>
+            {selectedExercise && (
+              <Text style={styles.exerciseMeta}>
+                {selectedExercise.repRange[0]}–{selectedExercise.repRange[1]} REPS
+              </Text>
+            )}
+          </TouchableOpacity>
+        )}
+
+        {/* ── Inputs (shown when an exercise is selected) ───── */}
         {selectedExercise && (
-          <View style={styles.prevBestRow}>
-            <Text style={styles.fieldLabel}>PREVIOUS BEST</Text>
-            <Text style={styles.prevBestValue}>
-              {prevBest
-                ? `${prevBest.weight_kg}kg × ${prevBest.reps} reps`
-                : 'No data yet — this is your first set'}
-            </Text>
-          </View>
-        )}
+          <>
+            {/* Previous best */}
+            <View style={styles.prevBestRow}>
+              <Text style={styles.fieldLabel}>PREVIOUS BEST</Text>
+              <Text style={styles.prevBestValue}>
+                {prevBest
+                  ? `${prevBest.weight_kg}kg × ${prevBest.reps} reps`
+                  : 'No data — first time'}
+              </Text>
+            </View>
 
-        {/* Weight & Reps Inputs */}
-        <View style={styles.inputRow}>
-          <View style={styles.inputGroup}>
-            <Text style={styles.fieldLabel}>WEIGHT (KG)</Text>
-            <TextInput
-              style={styles.input}
-              value={weight}
-              onChangeText={setWeight}
-              keyboardType="decimal-pad"
-              placeholder="0"
-              placeholderTextColor={COLORS.border}
-            />
-          </View>
-          <View style={styles.inputGroup}>
-            <Text style={styles.fieldLabel}>REPS</Text>
-            <TextInput
-              style={styles.input}
-              value={reps}
-              onChangeText={setReps}
-              keyboardType="number-pad"
-              placeholder="0"
-              placeholderTextColor={COLORS.border}
-            />
-          </View>
-        </View>
+            {/* Weight & reps */}
+            <View style={styles.inputRow}>
+              <View style={styles.inputGroup}>
+                <Text style={styles.fieldLabel}>WEIGHT (KG)</Text>
+                <TextInput
+                  style={styles.input}
+                  value={weight}
+                  onChangeText={setWeight}
+                  keyboardType="decimal-pad"
+                  placeholder="0"
+                  placeholderTextColor={COLORS.border}
+                />
+              </View>
+              <View style={styles.inputGroup}>
+                <Text style={styles.fieldLabel}>REPS</Text>
+                <TextInput
+                  style={styles.input}
+                  value={reps}
+                  onChangeText={setReps}
+                  keyboardType="number-pad"
+                  placeholder="0"
+                  placeholderTextColor={COLORS.border}
+                />
+              </View>
+            </View>
 
-        {/* Failure Reminder */}
-        {(weight !== '' || reps !== '') && (
-          <View style={styles.failurePrompt}>
-            <Text style={styles.failureText}>
-              ⚠️  Go to absolute muscular failure — the point at which another rep is physically impossible.
-            </Text>
-          </View>
-        )}
-
-        {/* Log Button */}
-        <TouchableOpacity style={styles.logButton} onPress={logSet} activeOpacity={0.8}>
-          <Text style={styles.logButtonText}>LOG SET</Text>
-        </TouchableOpacity>
-
-        {/* Result Card */}
-        {result && (
-          <Card style={styles.resultCard}>
-            <Text style={styles.resultLabel}>NEXT SESSION</Text>
-            <Text style={styles.resultMessage}>{result.message}</Text>
-            {result.progressNote && (
-              <View style={styles.prBadge}>
-                <Text style={styles.prBadgeText}>🏆 {result.progressNote}</Text>
+            {/* Failure reminder */}
+            {(weight !== '' || reps !== '') && (
+              <View style={styles.failurePrompt}>
+                <Text style={styles.failureText}>
+                  ⚠️  Train to absolute muscular failure — the point where another rep is physically impossible.
+                </Text>
               </View>
             )}
-            <View style={styles.resultFooter}>
-              <Text style={styles.restText}>Min rest: {result.restDays} days</Text>
-              <Text style={styles.nextWeightText}>{result.nextWeight}kg next</Text>
-            </View>
-          </Card>
+
+            {/* Log button */}
+            <TouchableOpacity style={styles.logButton} onPress={logSet} activeOpacity={0.8}>
+              <Text style={styles.logButtonText}>LOG SET</Text>
+            </TouchableOpacity>
+
+            {/* Result card */}
+            {result && (
+              <Card style={styles.resultCard}>
+                <Text style={styles.resultLabel}>NEXT SESSION</Text>
+                <Text style={styles.resultMessage}>{result.message}</Text>
+                {result.progressNote && (
+                  <View style={styles.prBadge}>
+                    <Text style={styles.prBadgeText}>🏆 {result.progressNote}</Text>
+                  </View>
+                )}
+                <View style={styles.resultFooter}>
+                  <Text style={styles.restText}>Min rest: {result.restDays} days</Text>
+                  <Text style={styles.nextWeightText}>{result.nextWeight}kg next</Text>
+                </View>
+              </Card>
+            )}
+
+            {/* Mentzer note */}
+            {selectedExercise?.mentzerNote && (
+              <Card style={[styles.cardSpacing, styles.mentzerAccent]}>
+                <Text style={styles.mentzerNoteLabel}>MENTZER ON {selectedExercise.name.toUpperCase()}</Text>
+                <Text style={styles.mentzerNoteText}>{selectedExercise.mentzerNote}</Text>
+              </Card>
+            )}
+          </>
         )}
 
-        {/* Logged Sets */}
+        {/* ── Logged sets this session ──────────────────────── */}
         {loggedSets.length > 0 && (
           <Card style={styles.cardSpacing}>
-            <Text style={styles.loggedTitle}>THIS WORKOUT · {loggedSets.length} SET{loggedSets.length > 1 ? 'S' : ''}</Text>
-            {loggedSets.map((set, index) => (
-              <View key={index} style={[styles.loggedSet, index === loggedSets.length - 1 && { borderBottomWidth: 0 }]}>
+            <Text style={styles.loggedTitle}>
+              THIS SESSION · {loggedSets.length} SET{loggedSets.length > 1 ? 'S' : ''}
+            </Text>
+            {loggedSets.map((set, i) => (
+              <View key={i} style={[styles.loggedSet, i === loggedSets.length - 1 && { borderBottomWidth: 0 }]}>
                 <View>
                   <Text style={styles.loggedExercise}>{set.exercise}</Text>
                   {set.isPR && <Text style={styles.prTag}>🏆 PR</Text>}
@@ -250,14 +337,6 @@ export default function WorkoutScreen({ navigation }) {
                 <Text style={styles.loggedDetails}>{set.weight}kg × {set.reps}</Text>
               </View>
             ))}
-          </Card>
-        )}
-
-        {/* Mentzer Note */}
-        {selectedExercise?.mentzerNote && (
-          <Card style={[styles.cardSpacing, styles.mentzerAccent]}>
-            <Text style={styles.mentzerNoteLabel}>MENTZER ON {selectedExercise.name.toUpperCase()}</Text>
-            <Text style={styles.mentzerNoteText}>{selectedExercise.mentzerNote}</Text>
           </Card>
         )}
 
@@ -306,7 +385,7 @@ export default function WorkoutScreen({ navigation }) {
                     )}
                   </View>
                   <Text style={styles.exerciseOptionDetail}>
-                    {exercise.type === 'compound' ? 'Compound' : 'Isolation'} · {exercise.repRange[0]}-{exercise.repRange[1]} reps
+                    {exercise.type === 'compound' ? 'Compound' : 'Isolation'} · {exercise.repRange[0]}–{exercise.repRange[1]} reps
                   </Text>
                 </View>
                 <Text style={styles.chevron}>›</Text>
@@ -322,13 +401,13 @@ export default function WorkoutScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
 
-  // Custom header
+  // Header
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingTop: 60, paddingHorizontal: SPACING.screen, paddingBottom: SPACING.md,
     borderBottomWidth: 1, borderBottomColor: COLORS.surface,
   },
-  backButton:   { color: COLORS.textDim, fontSize: 13, fontWeight: FONT.medium, letterSpacing: 1 },
+  backButton:   { color: COLORS.textMuted, fontSize: 13, fontWeight: FONT.medium, letterSpacing: 1 },
   headerCenter: { alignItems: 'center' },
   headerTitle:  { color: COLORS.white, fontSize: 14, fontWeight: FONT.black, letterSpacing: 3 },
   timerBadge: {
@@ -338,10 +417,41 @@ const styles = StyleSheet.create({
   timerText:    { color: COLORS.gold, fontSize: 12, fontWeight: FONT.semibold, letterSpacing: 1 },
   finishButton: { color: COLORS.gold, fontSize: 13, fontWeight: FONT.bold, letterSpacing: 1 },
 
-  content: { flex: 1, padding: SPACING.screen },
+  content:     { flex: 1, padding: SPACING.screen },
   cardSpacing: { marginBottom: SPACING.md },
 
-  // Exercise selector
+  // Routine cards
+  routineSection: { marginBottom: 20 },
+  routineLabel:   { color: '#ccc', fontSize: 10, fontWeight: FONT.black, letterSpacing: 3, marginBottom: 12 },
+  routineCard: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg, padding: SPACING.md,
+    marginBottom: 10, borderWidth: 1.5, borderColor: COLORS.border,
+  },
+  routineCardActive:     { borderColor: COLORS.gold, backgroundColor: '#0f0e00' },
+  routineCardLeft:       { flex: 1 },
+  routineExName:         { color: COLORS.white, fontSize: 16, fontWeight: FONT.bold, marginBottom: 3 },
+  routineExNameActive:   { color: COLORS.gold },
+  routineExMeta:         { color: '#888', fontSize: 11 },
+  routineCardRight:      { marginLeft: 12 },
+  doneBadge: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: COLORS.gold, alignItems: 'center', justifyContent: 'center',
+  },
+  doneText: { color: '#000', fontSize: 14, fontWeight: FONT.black },
+  logBtn: {
+    borderRadius: RADIUS.sm, paddingHorizontal: 14, paddingVertical: 7,
+    backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border,
+  },
+  logBtnActive:     { backgroundColor: COLORS.gold, borderColor: COLORS.gold },
+  logBtnText:       { color: '#999', fontSize: 10, fontWeight: FONT.black, letterSpacing: 1.5 },
+  logBtnTextActive: { color: '#000' },
+
+  addExtraBtn:  { alignSelf: 'flex-start', marginTop: 4, paddingVertical: 6 },
+  addExtraText: { color: '#666', fontSize: 11, fontWeight: FONT.semibold, letterSpacing: 1.5 },
+
+  // Exercise selector (no-routine fallback)
   exerciseSelector: {
     backgroundColor: COLORS.surface, borderRadius: RADIUS.lg, padding: SPACING.md,
     marginBottom: 12, borderWidth: 1, borderColor: COLORS.border,
@@ -349,7 +459,7 @@ const styles = StyleSheet.create({
   exerciseSelectorRow:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   exerciseSelectorValue: { color: COLORS.white, fontSize: 18, fontWeight: FONT.semibold },
   exerciseMeta:          { color: COLORS.gold, fontSize: 10, letterSpacing: 1, marginTop: 6, fontWeight: FONT.medium },
-  chevron:               { color: COLORS.textDim, fontSize: 24 },
+  chevron:               { color: COLORS.textMuted, fontSize: 24 },
 
   // Previous best
   prevBestRow: {
@@ -357,10 +467,10 @@ const styles = StyleSheet.create({
     marginBottom: 12, borderWidth: 1, borderColor: COLORS.border,
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
   },
-  prevBestValue: { color: COLORS.textMuted, fontSize: 13, fontWeight: FONT.medium },
+  prevBestValue: { color: '#aaa', fontSize: 13, fontWeight: FONT.medium },
 
   // Inputs
-  fieldLabel: { color: COLORS.textDim, fontSize: 10, letterSpacing: 2, fontWeight: FONT.semibold, marginBottom: SPACING.sm },
+  fieldLabel: { color: '#aaa', fontSize: 10, letterSpacing: 2, fontWeight: FONT.semibold, marginBottom: SPACING.sm },
   inputRow:   { flexDirection: 'row', gap: 12, marginBottom: 12 },
   inputGroup: { flex: 1 },
   input: {
@@ -385,11 +495,11 @@ const styles = StyleSheet.create({
   prBadge:       { backgroundColor: COLORS.goldFaint, borderRadius: RADIUS.sm, padding: 10, marginTop: 12, borderWidth: 1, borderColor: COLORS.goldBorder },
   prBadgeText:   { color: COLORS.gold, fontSize: 13, fontWeight: FONT.semibold },
   resultFooter:  { flexDirection: 'row', justifyContent: 'space-between', marginTop: 14 },
-  restText:      { color: COLORS.textDim, fontSize: 12 },
+  restText:      { color: '#888', fontSize: 12 },
   nextWeightText:{ color: COLORS.gold, fontSize: 13, fontWeight: FONT.bold },
 
   // Logged sets
-  loggedTitle:    { color: COLORS.textDim, fontSize: 10, letterSpacing: 2, fontWeight: FONT.semibold, marginBottom: 12 },
+  loggedTitle:    { color: '#aaa', fontSize: 10, letterSpacing: 2, fontWeight: FONT.semibold, marginBottom: 12 },
   loggedSet:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: COLORS.border },
   loggedExercise: { color: COLORS.white, fontSize: 14, fontWeight: FONT.medium },
   prTag:          { color: COLORS.gold, fontSize: 11, marginTop: 2 },
@@ -398,7 +508,7 @@ const styles = StyleSheet.create({
   // Mentzer note
   mentzerAccent:    { borderLeftWidth: 3, borderLeftColor: COLORS.gold, marginBottom: SPACING.md },
   mentzerNoteLabel: { color: COLORS.gold, fontSize: 9, letterSpacing: 2, fontWeight: FONT.semibold, marginBottom: SPACING.sm },
-  mentzerNoteText:  { color: COLORS.textMuted, fontSize: 13, lineHeight: 20, fontStyle: 'italic' },
+  mentzerNoteText:  { color: '#aaa', fontSize: 13, lineHeight: 20, fontStyle: 'italic' },
 
   // Modal
   modal: { flex: 1, backgroundColor: COLORS.background },
@@ -410,16 +520,16 @@ const styles = StyleSheet.create({
   modalTitle: { color: COLORS.white, fontSize: 16, fontWeight: FONT.black, letterSpacing: 3 },
   modalClose: { color: COLORS.gold, fontSize: 13, fontWeight: FONT.semibold, letterSpacing: 1 },
 
-  muscleFilter:        { paddingHorizontal: SPACING.screen, paddingVertical: SPACING.md, maxHeight: 64 },
-  muscleChip:          { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: COLORS.surface, marginRight: SPACING.sm, borderWidth: 1, borderColor: COLORS.border },
-  muscleChipActive:    { backgroundColor: COLORS.gold, borderColor: COLORS.gold },
-  muscleChipText:      { color: COLORS.textDim, fontSize: 12, fontWeight: FONT.medium },
-  muscleChipTextActive:{ color: '#000', fontWeight: FONT.bold },
+  muscleFilter:         { paddingHorizontal: SPACING.screen, paddingVertical: SPACING.md, maxHeight: 64 },
+  muscleChip:           { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: COLORS.surface, marginRight: SPACING.sm, borderWidth: 1, borderColor: COLORS.border },
+  muscleChipActive:     { backgroundColor: COLORS.gold, borderColor: COLORS.gold },
+  muscleChipText:       { color: '#999', fontSize: 12, fontWeight: FONT.medium },
+  muscleChipTextActive: { color: '#000', fontWeight: FONT.bold },
 
   exerciseOption:       { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SPACING.screen, paddingVertical: SPACING.md, borderBottomWidth: 1, borderBottomColor: COLORS.surface },
   exerciseOptionHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: 4 },
   exerciseOptionName:   { color: COLORS.white, fontSize: 16, fontWeight: FONT.medium },
-  hd2Badge:     { backgroundColor: COLORS.goldFaint, borderRadius: RADIUS.sm, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: COLORS.goldBorder },
-  hd2BadgeText: { color: COLORS.gold, fontSize: 9, fontWeight: FONT.bold, letterSpacing: 1 },
-  exerciseOptionDetail: { color: COLORS.textDim, fontSize: 12 },
+  hd2Badge:             { backgroundColor: COLORS.goldFaint, borderRadius: RADIUS.sm, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: COLORS.goldBorder },
+  hd2BadgeText:         { color: COLORS.gold, fontSize: 9, fontWeight: FONT.bold, letterSpacing: 1 },
+  exerciseOptionDetail: { color: '#888', fontSize: 12 },
 });

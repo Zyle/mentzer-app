@@ -64,6 +64,10 @@ function TabNavigator() {
   );
 }
 
+// ─── Dev mode ─────────────────────────────────────────────────────────────────
+// Set to 'onboarding', 'exercise', 'main', or false (real auth)
+const DEV_SCREEN = 'main';
+
 export default function App() {
   const [session, setSession]                   = useState(null);
   const [loading, setLoading]                   = useState(true);
@@ -71,7 +75,16 @@ export default function App() {
   const [needsRoutine, setNeedsRoutine]         = useState(false);
 
   useEffect(() => {
-    // Safety net — never get stuck on the spinner longer than 8 seconds
+    // DEV: bypass Supabase entirely — jump straight to target screen
+    if (DEV_SCREEN) {
+      if (DEV_SCREEN === 'onboarding') setNeedsOnboarding(true);
+      if (DEV_SCREEN === 'exercise')   setNeedsRoutine(true);
+      if (DEV_SCREEN === 'main')       setSession({ user: { id: 'dev' } });
+      setLoading(false);
+      return;
+    }
+
+    // ── Production auth flow ───────────────────────────────────────────────
     const timeout = setTimeout(() => setLoading(false), 8000);
 
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -98,11 +111,6 @@ export default function App() {
 
   const checkOnboarding = async (userId) => {
     try {
-      // DEV: always show onboarding
-      setNeedsOnboarding(true);
-      setLoading(false);
-      return;
-
       const { data } = await supabase
         .from('profiles')
         .select('name, age, sex, height_cm, bodyweight_kg, goal, experience_level, routine')
@@ -127,7 +135,7 @@ export default function App() {
 
   const handleOnboardingComplete = () => {
     setNeedsOnboarding(false);
-    setNeedsRoutine(true);   // always go to routine selection after fresh onboarding
+    setNeedsRoutine(true);
   };
 
   const handleRoutineComplete = () => {
@@ -142,11 +150,11 @@ export default function App() {
     );
   }
 
-  if (session && needsOnboarding) {
+  if (needsOnboarding) {
     return <OnboardingScreen onComplete={handleOnboardingComplete} />;
   }
 
-  if (session && needsRoutine) {
+  if (needsRoutine) {
     return <ExerciseSelectionScreen onComplete={handleRoutineComplete} />;
   }
 

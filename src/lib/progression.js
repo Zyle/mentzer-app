@@ -59,68 +59,106 @@ export const analyzeSet = (exercise, weightKg, reps, previousBest) => {
   return result;
 };
 
+const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+
 // HD2 Recovery Status — minimum 4 days between sessions
 export const getRecoveryStatus = (daysSinceWorkout) => {
   if (daysSinceWorkout === 0) {
     return {
       status: 'recovering',
-      message: 'Leave the gym. Growth begins now — not when you train more.',
+      message: pick([
+        'Training has broken the muscle down and depleted your entire system. Growth hasn\'t started yet — that comes later.',
+        'Your muscles are at their weakest right now. Your body is in recovery mode — don\'t give it more to deal with.',
+        'The damage is done — now stay out of the way. Every hour of rest and every gram of protein goes towards rebuilding.',
+      ]),
       emoji: '💪',
       readyToTrain: false,
     };
   } else if (daysSinceWorkout === 1) {
     return {
       status: 'repairing',
-      message: 'Muscle fibres are being repaired. Rest is not laziness — it is the work.',
+      message: pick([
+        'The tears are being stitched back together. Your body is patching the damage — training now would just rip it open again.',
+        'Repair is underway. The broken fibres are being rebuilt, but they\'re not ready yet — give it time.',
+        'Your body is using protein to rebuild the damaged tissue. Let it finish the job.',
+      ]),
       emoji: '🔧',
       readyToTrain: false,
     };
   } else if (daysSinceWorkout === 2) {
     return {
       status: 'rebuilding',
-      message: 'Your body is rebuilding beyond its previous state. Any training today interrupts this.',
+      message: pick([
+        'The fibres are nearly back to where they were. Your body is close to baseline — the growth phase is just around the corner.',
+        'Repairs are almost done. The muscle is rebuilding to its previous level before it can grow beyond it.',
+        'The tissue is being restored. Once it\'s back to where it was, your body starts building it stronger.',
+      ]),
       emoji: '⚡',
       readyToTrain: false,
     };
   } else if (daysSinceWorkout === 3) {
     return {
       status: 'growing',
-      message: 'Supercompensation is occurring. Your muscles are growing stronger. Stay out of the gym.',
+      message: pick([
+        'This is where the actual growth happens. Your muscle has been repaired and is now being built back stronger than before.',
+        'Your body has fixed the damage and is now overcompensating — adding more muscle than was there before.',
+        'The muscle is now growing past its previous size. This is the whole point — don\'t interrupt it.',
+      ]),
       emoji: '📈',
       readyToTrain: false,
     };
   } else if (daysSinceWorkout === 4) {
     return {
       status: 'almost',
-      message: 'Recovery is nearly complete. When in doubt, wait one more day.',
+      message: pick([
+        'Recovery is nearly complete. You may train today if you feel fully recovered. When in doubt, wait one more day.',
+        'You\'re close to peak. Mentzer\'s minimum was Day 4 — if there\'s any doubt, one more day costs nothing.',
+        'Almost there. The muscle is rebuilt and close to its peak. Listen to your body — if it\'s ready, train.',
+      ]),
       emoji: '🎯',
       readyToTrain: true,
     };
   } else if (daysSinceWorkout === 5) {
     return {
       status: 'ready',
-      message: 'Fully recovered. One set per exercise, maximum intensity, then leave.',
+      message: pick([
+        'You\'re fully recovered and stronger than last session. Get in, hit one set to failure, and leave.',
+        'The muscle is rebuilt and peaked. Any longer and it starts declining — train today.',
+        'Recovery is complete. Your body is primed and waiting. One set, maximum effort, done.',
+      ]),
       emoji: '✅',
       readyToTrain: true,
     };
   } else if (daysSinceWorkout === 6) {
     return {
       status: 'ready',
-      message: 'Peak supercompensation. Today is your ideal training day.',
+      message: pick([
+        'You\'re fully recovered and stronger than last session. Get in, hit one set to failure, and leave.',
+        'The muscle is rebuilt and peaked. Any longer and it starts declining — train today.',
+        'Recovery is complete. Your body is primed and waiting. One set, maximum effort, done.',
+      ]),
       emoji: '✅',
       readyToTrain: true,
     };
   } else if (daysSinceWorkout === 7) {
     return {
       status: 'overdue',
-      message: 'Train today. Waiting longer will not improve growth — supercompensation has peaked.',
+      message: pick([
+        'You\'ve missed the peak. The muscle your body built is slowly being broken back down. Train now.',
+        'Your body built you up and you didn\'t use it. It\'s starting to take it back — get to the gym.',
+        'Past your window. The gains from your last session are fading. Train as soon as possible.',
+      ]),
       emoji: '⚠️',
       readyToTrain: true,
     };
   } else {
     return {
       status: 'overdue',
-      message: `Day ${daysSinceWorkout}. You are past your optimal window. Train as soon as possible.`,
+      message: pick([
+        'You\'ve missed the peak. The muscle your body built is slowly being broken back down. Train now.',
+        'Your body built you up and you didn\'t use it. It\'s starting to take it back — get to the gym.',
+        'Past your window. The gains from your last session are fading. Train as soon as possible.',
+      ]),
       emoji: '🚨',
       readyToTrain: true,
     };

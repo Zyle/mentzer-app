@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Text, View, ActivityIndicator, Platform } from 'react-native';
+import { Text, View, ActivityIndicator, Platform, StyleSheet } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as NavigationBar from 'expo-navigation-bar';
 import { supabase } from './src/lib/supabase';
@@ -16,9 +17,25 @@ import ProgressScreen from './src/screens/ProgressScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import WorkoutHistoryScreen from './src/screens/WorkoutHistoryScreen';
 import ExerciseSelectionScreen from './src/screens/ExerciseSelectionScreen';
+import CalorieTrackerScreen from './src/screens/CalorieTrackerScreen';
+import HDScoreDetailScreen from './src/screens/HDScoreDetailScreen';
 
 const Stack = createNativeStackNavigator();
-const Tab = createBottomTabNavigator();
+const Tab   = createBottomTabNavigator();
+
+// Minimal tab icon: Feather icon + active dot indicator
+function TabIcon({ name, color, focused }) {
+  return (
+    <View style={ti.wrap}>
+      <Feather name={name} size={20} color={color} strokeWidth={focused ? 2.5 : 1.5} />
+      {focused && <View style={ti.dot} />}
+    </View>
+  );
+}
+const ti = StyleSheet.create({
+  wrap: { alignItems: 'center', justifyContent: 'center', gap: 4 },
+  dot:  { width: 3, height: 3, borderRadius: 2, backgroundColor: '#c9a84c' },
+});
 
 function TabNavigator() {
   const insets = useSafeAreaInsets();
@@ -28,40 +45,41 @@ function TabNavigator() {
         headerShown: false,
         tabBarStyle: {
           backgroundColor: '#0a0a0a',
-          borderTopColor: '#1a1a1a',
+          borderTopColor: '#161616',
           borderTopWidth: 1,
           paddingBottom: 8 + insets.bottom,
-          paddingTop: 8,
-          height: 70 + insets.bottom,
+          paddingTop: 10,
+          height: 72 + insets.bottom,
         },
         tabBarActiveTintColor: '#c9a84c',
-        tabBarInactiveTintColor: '#444',
+        tabBarInactiveTintColor: '#3a3a3a',
         tabBarLabelStyle: {
           fontSize: 9,
           letterSpacing: 1.5,
           fontWeight: '700',
         },
+        tabBarShowLabel: false,
       }}
     >
       <Tab.Screen
         name="Home"
         component={HomeScreen}
-        options={{ tabBarLabel: 'HOME', tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>⚡</Text> }}
+        options={{ tabBarIcon: ({ color, focused }) => <TabIcon name="home" color={color} focused={focused} /> }}
       />
       <Tab.Screen
         name="Progress"
         component={ProgressScreen}
-        options={{ tabBarLabel: 'PROGRESS', tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>📈</Text> }}
+        options={{ tabBarIcon: ({ color, focused }) => <TabIcon name="bar-chart-2" color={color} focused={focused} /> }}
       />
       <Tab.Screen
         name="History"
         component={WorkoutHistoryScreen}
-        options={{ tabBarLabel: 'HISTORY', tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>📋</Text> }}
+        options={{ tabBarIcon: ({ color, focused }) => <TabIcon name="calendar" color={color} focused={focused} /> }}
       />
       <Tab.Screen
         name="Profile"
         component={ProfileScreen}
-        options={{ tabBarLabel: 'PROFILE', tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>👤</Text> }}
+        options={{ tabBarIcon: ({ color, focused }) => <TabIcon name="user" color={color} focused={focused} /> }}
       />
     </Tab.Navigator>
   );
@@ -179,6 +197,8 @@ export default function App() {
             <>
               <Stack.Screen name="Main" component={TabNavigator} />
               <Stack.Screen name="Workout" component={WorkoutScreen} />
+              <Stack.Screen name="CalorieTracker" component={CalorieTrackerScreen} />
+              <Stack.Screen name="HDScoreDetail" component={HDScoreDetailScreen} />
             </>
           )}
         </Stack.Navigator>

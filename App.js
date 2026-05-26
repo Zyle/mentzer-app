@@ -6,6 +6,7 @@ import { Text, View, ActivityIndicator, Platform } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as NavigationBar from 'expo-navigation-bar';
 import { supabase } from './src/lib/supabase';
+import { registerForPushNotifications } from './src/lib/notifications';
 import ErrorBoundary from './src/components/ErrorBoundary';
 
 import LoginScreen from './src/screens/LoginScreen';
@@ -120,6 +121,7 @@ export default function App() {
   }, []);
 
   const checkOnboarding = async (userId) => {
+    registerForPushNotifications(); // non-blocking — asks permission, no await needed
     try {
       const { data } = await supabase
         .from('profiles')

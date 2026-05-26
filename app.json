@@ -6,8 +6,12 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "plugins": ["expo-notifications"],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSUserNotificationUsageDescription": "We'll notify you when your muscles have fully recovered and you're ready to train."
+      }
     },
     "android": {
       "adaptiveIcon": {

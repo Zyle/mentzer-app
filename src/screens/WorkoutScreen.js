@@ -4,6 +4,7 @@ import {
   TouchableOpacity, TextInput, Alert, Modal,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
+import { scheduleRecoveryNotifications } from '../lib/notifications';
 import { EXERCISES, MUSCLES } from '../data/exercises';
 import { analyzeSet } from '../lib/progression';
 import Card from '../components/Card';
@@ -138,7 +139,7 @@ export default function WorkoutScreen({ navigation }) {
       'Great work. Leave the gym now. Growth begins during rest.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'FINISH', onPress: () => navigation.navigate('Main') },
+        { text: 'FINISH', onPress: async () => { await scheduleRecoveryNotifications(); navigation.navigate('Main'); } },
       ]
     );
   };

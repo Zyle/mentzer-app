@@ -13,7 +13,7 @@ import Card from '../components/Card';
 import { COLORS, FONT, RADIUS, SPACING } from '../theme';
 
 // ── Dev override — set to hours since last workout, null for real data ────────
-const DEV_HOURS_SINCE = 51; // 2d 3h — set to null for real data
+const DEV_HOURS_SINCE = null; // set to a number (hours) to mock recovery timing
 
 // ── Phase metadata ────────────────────────────────────────────────────────────
 const PHASE_META = {

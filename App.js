@@ -17,6 +17,7 @@ import ProgressScreen from './src/screens/ProgressScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import WorkoutHistoryScreen from './src/screens/WorkoutHistoryScreen';
 import ExerciseSelectionScreen from './src/screens/ExerciseSelectionScreen';
+import SettingsScreen from './src/screens/SettingsScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -181,6 +182,7 @@ export default function App() {
             <>
               <Stack.Screen name="Main" component={TabNavigator} />
               <Stack.Screen name="Workout" component={WorkoutScreen} />
+              <Stack.Screen name="Settings" component={SettingsScreen} />
             </>
           )}
         </Stack.Navigator>

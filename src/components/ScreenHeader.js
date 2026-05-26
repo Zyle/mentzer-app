@@ -11,12 +11,17 @@ import { COLORS, FONT, SPACING } from '../theme';
  *   topContent — node rendered above the title, e.g. a greeting (optional)
  *   bordered   — adds a bottom border line (default false)
  */
-export default function ScreenHeader({ title, subtitle, topContent, bordered = false }) {
+export default function ScreenHeader({ title, subtitle, topContent, bordered = false, right }) {
   return (
     <View style={[styles.header, bordered && styles.bordered]}>
       {topContent}
-      <Text style={styles.title}>{title}</Text>
-      {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+      <View style={styles.titleRow}>
+        <View>
+          <Text style={styles.title}>{title}</Text>
+          {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+        </View>
+        {right ? <View style={styles.right}>{right}</View> : null}
+      </View>
     </View>
   );
 }
@@ -31,6 +36,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLORS.surface,
   },
+  titleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+  },
   title: {
     fontSize: 34,
     fontWeight: FONT.black,
@@ -42,5 +52,8 @@ const styles = StyleSheet.create({
     color: COLORS.gold,
     letterSpacing: 4,
     marginTop: 2,
+  },
+  right: {
+    paddingBottom: 4,
   },
 });

@@ -243,7 +243,10 @@ export default function WorkoutScreen({ navigation }) {
         )}
 
         {/* ── Inputs (shown when an exercise is selected) ───── */}
-        {selectedExercise && (
+        {selectedExercise && (() => {
+          const setsLogged = setsForExercise(selectedExercise.name);
+          const atLimit = setsLogged >= 2;
+          return (
           <>
             {/* Previous best */}
             <View style={styles.prevBestRow}>
@@ -255,45 +258,55 @@ export default function WorkoutScreen({ navigation }) {
               </Text>
             </View>
 
-            {/* Weight & reps */}
-            <View style={styles.inputRow}>
-              <View style={styles.inputGroup}>
-                <Text style={styles.fieldLabel}>WEIGHT (KG)</Text>
-                <TextInput
-                  style={styles.input}
-                  value={weight}
-                  onChangeText={setWeight}
-                  keyboardType="decimal-pad"
-                  placeholder="0"
-                  placeholderTextColor={COLORS.border}
-                />
-              </View>
-              <View style={styles.inputGroup}>
-                <Text style={styles.fieldLabel}>REPS</Text>
-                <TextInput
-                  style={styles.input}
-                  value={reps}
-                  onChangeText={setReps}
-                  keyboardType="number-pad"
-                  placeholder="0"
-                  placeholderTextColor={COLORS.border}
-                />
-              </View>
-            </View>
-
-            {/* Failure reminder */}
-            {(weight !== '' || reps !== '') && (
-              <View style={styles.failurePrompt}>
-                <Text style={styles.failureText}>
-                  ⚠️  Train to absolute muscular failure — the point where another rep is physically impossible.
+            {atLimit ? (
+              <View style={styles.setLimitBanner}>
+                <Text style={styles.setLimitText}>
+                  You have already trained an optimum amount for this exercise. Take 5 days rest before next session.
                 </Text>
               </View>
-            )}
+            ) : (
+              <>
+                {/* Weight & reps */}
+                <View style={styles.inputRow}>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.fieldLabel}>WEIGHT (KG)</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={weight}
+                      onChangeText={setWeight}
+                      keyboardType="decimal-pad"
+                      placeholder="0"
+                      placeholderTextColor={COLORS.border}
+                    />
+                  </View>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.fieldLabel}>REPS</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={reps}
+                      onChangeText={setReps}
+                      keyboardType="number-pad"
+                      placeholder="0"
+                      placeholderTextColor={COLORS.border}
+                    />
+                  </View>
+                </View>
 
-            {/* Log button */}
-            <TouchableOpacity style={styles.logButton} onPress={logSet} activeOpacity={0.8}>
-              <Text style={styles.logButtonText}>LOG SET</Text>
-            </TouchableOpacity>
+                {/* Failure reminder */}
+                {(weight !== '' || reps !== '') && (
+                  <View style={styles.failurePrompt}>
+                    <Text style={styles.failureText}>
+                      ⚠️  Train to absolute muscular failure — the point where another rep is physically impossible.
+                    </Text>
+                  </View>
+                )}
+
+                {/* Log button */}
+                <TouchableOpacity style={styles.logButton} onPress={logSet} activeOpacity={0.8}>
+                  <Text style={styles.logButtonText}>LOG SET</Text>
+                </TouchableOpacity>
+              </>
+            )}
 
             {/* Result card */}
             {result && (
@@ -320,7 +333,8 @@ export default function WorkoutScreen({ navigation }) {
               </Card>
             )}
           </>
-        )}
+          );
+        })()}
 
         {/* ── Logged sets this session ──────────────────────── */}
         {loggedSets.length > 0 && (
@@ -487,6 +501,13 @@ const styles = StyleSheet.create({
 
   logButton:     { backgroundColor: COLORS.gold, paddingVertical: 18, borderRadius: RADIUS.lg, alignItems: 'center', marginBottom: SPACING.md },
   logButtonText: { color: '#000', fontSize: 15, fontWeight: FONT.black, letterSpacing: 2 },
+
+  setLimitBanner: {
+    backgroundColor: COLORS.surface, borderRadius: RADIUS.md, padding: 14,
+    marginBottom: SPACING.md, borderWidth: 1, borderColor: COLORS.border,
+    alignItems: 'center',
+  },
+  setLimitText: { color: COLORS.textMuted, fontSize: 13, fontWeight: FONT.medium, textAlign: 'center' },
 
   // Result card
   resultCard:    { backgroundColor: '#0d1a0d', borderWidth: 1, borderColor: '#2d4d2d', marginBottom: SPACING.md },

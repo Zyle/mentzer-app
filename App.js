@@ -7,6 +7,7 @@ import { Feather } from '@expo/vector-icons';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as NavigationBar from 'expo-navigation-bar';
 import { supabase } from './src/lib/supabase';
+import { registerForPushNotifications } from './src/lib/notifications';
 import ErrorBoundary from './src/components/ErrorBoundary';
 
 import LoginScreen from './src/screens/LoginScreen';
@@ -19,6 +20,7 @@ import WorkoutHistoryScreen from './src/screens/WorkoutHistoryScreen';
 import ExerciseSelectionScreen from './src/screens/ExerciseSelectionScreen';
 import CalorieTrackerScreen from './src/screens/CalorieTrackerScreen';
 import HDScoreDetailScreen from './src/screens/HDScoreDetailScreen';
+import SettingsScreen from './src/screens/SettingsScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab   = createBottomTabNavigator();
@@ -138,6 +140,7 @@ export default function App() {
   }, []);
 
   const checkOnboarding = async (userId) => {
+    registerForPushNotifications(); // non-blocking — asks permission, no await needed
     try {
       const { data } = await supabase
         .from('profiles')
@@ -199,6 +202,7 @@ export default function App() {
               <Stack.Screen name="Workout" component={WorkoutScreen} />
               <Stack.Screen name="CalorieTracker" component={CalorieTrackerScreen} />
               <Stack.Screen name="HDScoreDetail" component={HDScoreDetailScreen} />
+              <Stack.Screen name="Settings" component={SettingsScreen} />
             </>
           )}
         </Stack.Navigator>

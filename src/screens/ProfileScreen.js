@@ -9,7 +9,7 @@ import ScreenHeader from '../components/ScreenHeader';
 import CalorieSlider from '../components/CalorieSlider';
 import { COLORS, FONT, RADIUS, SPACING } from '../theme';
 
-export default function ProfileScreen() {
+export default function ProfileScreen({ navigation }) {
   const [profile, setProfile] = useState(null);
   const [editing, setEditing] = useState(false);
   const [bodyweight, setBodyweight] = useState('');
@@ -88,7 +88,13 @@ export default function ProfileScreen() {
 
   return (
     <ScrollView style={styles.container}>
-      <ScreenHeader title="PROFILE" subtitle="YOUR METRICS" bordered />
+      <ScreenHeader title="PROFILE" subtitle="YOUR METRICS" bordered
+        right={
+          <TouchableOpacity onPress={() => navigation.navigate('Settings')} activeOpacity={0.7}>
+            <Text style={styles.settingsIcon}>⚙</Text>
+          </TouchableOpacity>
+        }
+      />
 
       {/* Profile Card */}
       <Card style={styles.cardSpacing}>
@@ -354,5 +360,6 @@ const styles = StyleSheet.create({
     alignItems: 'center', borderWidth: 1, borderColor: COLORS.border,
     backgroundColor: COLORS.surface,
   },
-  signOutText: { color: COLORS.textDim, fontSize: 13, fontWeight: FONT.semibold, letterSpacing: 2 },
+  signOutText:   { color: COLORS.textDim, fontSize: 13, fontWeight: FONT.semibold, letterSpacing: 2 },
+  settingsIcon:  { color: COLORS.textMuted, fontSize: 22 },
 });

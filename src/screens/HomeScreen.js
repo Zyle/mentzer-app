@@ -13,8 +13,8 @@ import Card from '../components/Card';
 import { Feather } from '@expo/vector-icons';
 import { COLORS, FONT, RADIUS, SPACING } from '../theme';
 
-// ── Dev override ───────────────────────────────────────────────────────────────
-const DEV_HOURS_SINCE = null;
+// ── Dev override — set to hours since last workout, null for real data ────────
+const DEV_HOURS_SINCE = null; // set to a number (hours) to mock recovery timing
 
 // ── Phase metadata ─────────────────────────────────────────────────────────────
 const PHASE_META = {

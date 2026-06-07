@@ -13,6 +13,8 @@ export default function ProfileScreen({ navigation }) {
   const [profile, setProfile] = useState(null);
   const [editing, setEditing] = useState(false);
   const [bodyweight, setBodyweight] = useState('');
+  const [height, setHeight] = useState('');
+  const [age, setAge] = useState('');
   const [name, setName] = useState('');
   const [calorieAdjustment, setCalorieAdjustment] = useState(0);
 
@@ -24,6 +26,8 @@ export default function ProfileScreen({ navigation }) {
     if (data) {
       setProfile(data);
       setBodyweight(data.bodyweight_kg?.toString() || '');
+      setHeight(data.height_cm?.toString() || '');
+      setAge(data.age?.toString() || '');
       setName(data.name || '');
       setCalorieAdjustment(Math.abs(data.calorie_adjustment || 0));
     }
@@ -41,6 +45,8 @@ export default function ProfileScreen({ navigation }) {
       id: user.id,
       name,
       bodyweight_kg: parseFloat(bodyweight) || null,
+      height_cm: parseFloat(height) || null,
+      age: parseInt(age) || null,
       calorie_adjustment: signedAdjustment,
       last_weight_checkin: new Date().toISOString(),
     });
@@ -115,6 +121,24 @@ export default function ProfileScreen({ navigation }) {
               onChangeText={setBodyweight}
               keyboardType="decimal-pad"
               placeholder="80"
+              placeholderTextColor={COLORS.textFaint}
+            />
+            <Text style={styles.label}>HEIGHT (CM)</Text>
+            <TextInput
+              style={styles.input}
+              value={height}
+              onChangeText={setHeight}
+              keyboardType="decimal-pad"
+              placeholder="175"
+              placeholderTextColor={COLORS.textFaint}
+            />
+            <Text style={styles.label}>AGE</Text>
+            <TextInput
+              style={styles.input}
+              value={age}
+              onChangeText={setAge}
+              keyboardType="number-pad"
+              placeholder="30"
               placeholderTextColor={COLORS.textFaint}
             />
             {profile?.goal !== 'maintain' && profile?.goal && (

@@ -29,12 +29,6 @@ const INCREMENTS = [
 export default function SettingsScreen({ navigation }) {
   const [userId, setUserId]               = useState(null);
 
-  // Body stats
-  const [bodyweight, setBodyweight]       = useState('');
-  const [height, setHeight]               = useState('');
-  const [age, setAge]                     = useState('');
-  const [savingBody, setSavingBody]       = useState(false);
-
   // Goal
   const [goal, setGoal]                   = useState(null);
   const [savingGoal, setSavingGoal]       = useState(false);
@@ -66,13 +60,10 @@ export default function SettingsScreen({ navigation }) {
 
       const { data: profile } = await supabase
         .from('profiles')
-        .select('goal, bodyweight_kg, height_cm, age')
+        .select('goal')
         .eq('id', user.id).single();
 
-      if (profile?.goal)          setGoal(profile.goal);
-      if (profile?.bodyweight_kg) setBodyweight(String(profile.bodyweight_kg));
-      if (profile?.height_cm)     setHeight(String(profile.height_cm));
-      if (profile?.age)           setAge(String(profile.age));
+      if (profile?.goal) setGoal(profile.goal);
 
       const savedUnits     = await AsyncStorage.getItem('units');
       const savedIncrement = await AsyncStorage.getItem('weightIncrement');
@@ -88,24 +79,6 @@ export default function SettingsScreen({ navigation }) {
     } catch (e) {
       console.error('loadSettings error:', e);
     }
-  };
-
-  // ── Body stats ───────────────────────────────────────────────────────────────
-  const saveBodyStats = async () => {
-    const bw = parseFloat(bodyweight);
-    const ht = parseFloat(height);
-    const ag = parseInt(age);
-
-    if (!bw || bw <= 0) { Alert.alert('Invalid', 'Enter a valid bodyweight.'); return; }
-    if (!ht || ht <= 0) { Alert.alert('Invalid', 'Enter a valid height.'); return; }
-    if (!ag || ag <= 0) { Alert.alert('Invalid', 'Enter a valid age.'); return; }
-
-    setSavingBody(true);
-    await supabase.from('profiles')
-      .update({ bodyweight_kg: bw, height_cm: ht, age: ag })
-      .eq('id', userId);
-    setSavingBody(false);
-    Alert.alert('Saved', 'Body stats updated. Nutrition targets will recalculate.');
   };
 
   // ── Goal ─────────────────────────────────────────────────────────────────────
@@ -221,38 +194,6 @@ export default function SettingsScreen({ navigation }) {
       </View>
 
       <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
-
-        {/* ── YOUR BODY ──────────────────────────────────────────────────────── */}
-        <Text style={styles.sectionLabel}>YOUR BODY</Text>
-        <View style={styles.card}>
-          {[
-            { label: 'Bodyweight', value: bodyweight, setter: setBodyweight, unit: 'kg',  keyboard: 'decimal-pad' },
-            { label: 'Height',     value: height,     setter: setHeight,     unit: 'cm',  keyboard: 'decimal-pad' },
-            { label: 'Age',        value: age,         setter: setAge,         unit: 'yrs', keyboard: 'number-pad'  },
-          ].map((field, i, arr) => (
-            <View key={field.label} style={[styles.bodyRow, i < arr.length - 1 && styles.rowBorder]}>
-              <Text style={styles.bodyLabel}>{field.label}</Text>
-              <View style={styles.bodyInputRow}>
-                <TextInput
-                  style={styles.bodyInput}
-                  value={field.value}
-                  onChangeText={field.setter}
-                  keyboardType={field.keyboard}
-                  placeholder="—"
-                  placeholderTextColor={COLORS.textFaint}
-                />
-                <Text style={styles.bodyUnit}>{field.unit}</Text>
-              </View>
-            </View>
-          ))}
-          <TouchableOpacity
-            style={[styles.saveBodyBtn, savingBody && { opacity: 0.6 }]}
-            onPress={saveBodyStats}
-            disabled={savingBody}
-          >
-            <Text style={styles.saveBodyBtnText}>{savingBody ? 'SAVING…' : 'SAVE CHANGES'}</Text>
-          </TouchableOpacity>
-        </View>
 
         {/* ── TRAINING GOAL ──────────────────────────────────────────────────── */}
         <Text style={styles.sectionLabel}>TRAINING GOAL</Text>
@@ -492,25 +433,6 @@ const styles = StyleSheet.create({
   },
 
   rowBorder: { borderBottomWidth: 1, borderBottomColor: COLORS.border },
-
-  // Body stats
-  bodyRow:      { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SPACING.md, paddingVertical: 12 },
-  bodyLabel:    { flex: 1, color: COLORS.white, fontSize: 13, fontWeight: FONT.medium },
-  bodyInputRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  bodyInput: {
-    backgroundColor: COLORS.surfaceDark, color: COLORS.white,
-    fontSize: 15, fontWeight: FONT.semibold, textAlign: 'right',
-    paddingVertical: 6, paddingHorizontal: 10,
-    borderRadius: RADIUS.sm, borderWidth: 1, borderColor: COLORS.border,
-    minWidth: 70,
-  },
-  bodyUnit:     { color: COLORS.textDim, fontSize: 11, width: 28 },
-  saveBodyBtn: {
-    margin: SPACING.md, marginTop: 4,
-    backgroundColor: COLORS.gold, borderRadius: RADIUS.md,
-    paddingVertical: 12, alignItems: 'center',
-  },
-  saveBodyBtnText: { color: '#000', fontSize: 12, fontWeight: FONT.black, letterSpacing: 1.5 },
 
   // Option rows
   optionRow: {

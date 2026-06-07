@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, ScrollView,
   TouchableOpacity, TextInput, Alert, Modal,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import { scheduleRecoveryNotifications } from '../lib/notifications';
 import { EXERCISES, MUSCLES } from '../data/exercises';
@@ -22,6 +23,8 @@ export default function WorkoutScreen({ navigation }) {
   const [prevBests, setPrevBests]           = useState({});
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [restTimer, setRestTimer]           = useState({ active: false, elapsed: 0 });
+
+  const [weightIncrement, setWeightIncrement] = useState(2.5);
 
   // Modals
   const [showExercisePicker, setShowExercisePicker] = useState(false);
@@ -61,6 +64,9 @@ export default function WorkoutScreen({ navigation }) {
         .order('created_at', { ascending: false });
 
       setTemplates(data || []);
+
+      const savedIncrement = await AsyncStorage.getItem('weightIncrement');
+      if (savedIncrement) setWeightIncrement(parseFloat(savedIncrement));
     } catch (e) {
       console.error('initUser error:', e);
     }
@@ -463,7 +469,7 @@ export default function WorkoutScreen({ navigation }) {
                     <View style={[styles.inputGroup, { flex: 3 }]}>
                       <Text style={styles.inputGroupLabel}>WEIGHT</Text>
                       <View style={styles.inputControls}>
-                        <TouchableOpacity style={styles.adjBtn} onPress={() => adjustWeight(exercise.name, -2.5)}>
+                        <TouchableOpacity style={styles.adjBtn} onPress={() => adjustWeight(exercise.name, -weightIncrement)}>
                           <Text style={styles.adjBtnText}>−</Text>
                         </TouchableOpacity>
                         <TextInput
@@ -474,7 +480,7 @@ export default function WorkoutScreen({ navigation }) {
                           placeholder="0"
                           placeholderTextColor={COLORS.textFaint}
                         />
-                        <TouchableOpacity style={styles.adjBtn} onPress={() => adjustWeight(exercise.name, 2.5)}>
+                        <TouchableOpacity style={styles.adjBtn} onPress={() => adjustWeight(exercise.name, weightIncrement)}>
                           <Text style={styles.adjBtnText}>+</Text>
                         </TouchableOpacity>
                       </View>

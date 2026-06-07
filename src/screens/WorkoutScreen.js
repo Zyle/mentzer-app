@@ -460,7 +460,7 @@ export default function WorkoutScreen({ navigation }) {
                   <View style={styles.divider} />
 
                   <View style={styles.setRow}>
-                    <View style={styles.inputGroup}>
+                    <View style={[styles.inputGroup, { flex: 3 }]}>
                       <Text style={styles.inputGroupLabel}>WEIGHT</Text>
                       <View style={styles.inputControls}>
                         <TouchableOpacity style={styles.adjBtn} onPress={() => adjustWeight(exercise.name, -2.5)}>
@@ -481,9 +481,7 @@ export default function WorkoutScreen({ navigation }) {
                       <Text style={styles.inputUnit}>kg</Text>
                     </View>
 
-                    <View style={styles.setRowDivider} />
-
-                    <View style={styles.inputGroup}>
+                    <View style={[styles.inputGroup, { flex: 2 }]}>
                       <Text style={styles.inputGroupLabel}>REPS</Text>
                       <View style={styles.inputControls}>
                         <TouchableOpacity style={styles.adjBtn} onPress={() => adjustReps(exercise.name, -1)}>
@@ -722,35 +720,34 @@ const styles = StyleSheet.create({
   prevValue: { color: COLORS.textMuted, fontSize: 13, fontWeight: FONT.medium },
   divider:   { height: 1, backgroundColor: COLORS.border, marginBottom: 14 },
 
-  setRow:        { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  setRowDivider: { width: 1, height: 48, backgroundColor: COLORS.border },
+  setRow:     { flexDirection: 'row', alignItems: 'center', gap: 6 },
 
-  inputGroup:      { flex: 1, alignItems: 'center' },
+  inputGroup:      { alignItems: 'center' },
   inputGroupLabel: { color: COLORS.textDim, fontSize: 9, fontWeight: FONT.semibold, letterSpacing: 2, marginBottom: 6 },
-  inputControls:   { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'stretch' },
+  inputControls:   { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'stretch' },
   inputUnit:       { color: COLORS.textDim, fontSize: 10, letterSpacing: 1, marginTop: 4 },
 
   adjBtn: {
-    width: 32, height: 36, borderRadius: RADIUS.sm,
+    width: 26, height: 36, borderRadius: RADIUS.sm,
     backgroundColor: COLORS.surfaceDark, borderWidth: 1, borderColor: COLORS.border,
     alignItems: 'center', justifyContent: 'center',
   },
-  adjBtnText: { color: COLORS.white, fontSize: 20, fontWeight: FONT.medium },
+  adjBtnText: { color: COLORS.white, fontSize: 18, fontWeight: FONT.medium },
 
   numberInput: {
     flex: 1, backgroundColor: COLORS.surfaceDark, color: COLORS.white,
-    fontSize: 24, fontWeight: FONT.black, textAlign: 'center',
-    paddingVertical: 6, paddingHorizontal: 4,
+    fontSize: 20, fontWeight: FONT.black, textAlign: 'center',
+    paddingVertical: 6, paddingHorizontal: 2,
     borderRadius: RADIUS.md, borderWidth: 1, borderColor: COLORS.border,
   },
 
   completeBtn: {
-    width: 52, height: 52, borderRadius: 26,
+    width: 48, height: 48, borderRadius: 24,
     borderWidth: 2, borderColor: COLORS.border,
-    alignItems: 'center', justifyContent: 'center', marginLeft: 4,
+    alignItems: 'center', justifyContent: 'center',
   },
   completeBtnReady:     { backgroundColor: COLORS.gold, borderColor: COLORS.gold },
-  completeBtnText:      { color: COLORS.textDim, fontSize: 22, fontWeight: FONT.bold },
+  completeBtnText:      { color: COLORS.textDim, fontSize: 20, fontWeight: FONT.bold },
   completeBtnTextReady: { color: '#000' },
 
   mentzerNote: {

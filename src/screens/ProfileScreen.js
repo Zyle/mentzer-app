@@ -17,6 +17,7 @@ export default function ProfileScreen({ navigation }) {
   const [age, setAge] = useState('');
   const [name, setName] = useState('');
   const [calorieAdjustment, setCalorieAdjustment] = useState(0);
+  const [sliderActive, setSliderActive] = useState(false);
 
   useEffect(() => { loadData(); }, []);
 
@@ -93,7 +94,7 @@ export default function ProfileScreen({ navigation }) {
   };
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={styles.container} scrollEnabled={!sliderActive}>
       <ScreenHeader title="PROFILE" subtitle="YOUR METRICS" bordered
         right={
           <TouchableOpacity onPress={() => navigation.navigate('Settings')} activeOpacity={0.7}>
@@ -153,6 +154,8 @@ export default function ProfileScreen({ navigation }) {
                   step={50}
                   onChange={setCalorieAdjustment}
                   color={profile.goal === 'bulk' ? COLORS.gold : COLORS.red}
+                  onDragStart={() => setSliderActive(true)}
+                  onDragEnd={() => setSliderActive(false)}
                 />
                 {profile.goal === 'cut' && (
                   <View style={styles.predictionCard}>

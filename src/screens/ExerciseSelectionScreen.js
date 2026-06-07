@@ -244,7 +244,7 @@ const DEFAULT_COMPOUNDS = {
 };
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
-export default function ExerciseSelectionScreen({ onComplete }) {
+export default function ExerciseSelectionScreen({ onComplete, onBack }) {
   const [step, setStep]           = useState(0);
   const [compounds, setCompounds] = useState({ ...DEFAULT_COMPOUNDS });
   const [isolation, setIsolation] = useState(new Set());
@@ -314,6 +314,10 @@ export default function ExerciseSelectionScreen({ onComplete }) {
       <View style={styles.topNav}>
         {step > 0 ? (
           <TouchableOpacity style={styles.topBackBtn} onPress={back}>
+            <Text style={styles.topBackText}>← BACK</Text>
+          </TouchableOpacity>
+        ) : onBack ? (
+          <TouchableOpacity style={styles.topBackBtn} onPress={onBack}>
             <Text style={styles.topBackText}>← BACK</Text>
           </TouchableOpacity>
         ) : (

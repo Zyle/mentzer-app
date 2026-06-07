@@ -13,8 +13,9 @@ import Card from '../components/Card';
 import { Feather } from '@expo/vector-icons';
 import { COLORS, FONT, RADIUS, SPACING } from '../theme';
 
-// ── Dev override — set to hours since last workout, null for real data ────────
-const DEV_HOURS_SINCE = null; // set to a number (hours) to mock recovery timing
+// ── Dev override ───────────────────────────────────────────────────────────────
+const DEV_HOURS_SINCE = null;
+const DEV_ANIMATE     = false;
 
 // ── Phase metadata ─────────────────────────────────────────────────────────────
 const PHASE_META = {
@@ -45,14 +46,14 @@ const calcReadiness = hours => {
 const _lerp = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
 const _rgb  = ([r, g, b]) => `rgb(${r},${g},${b})`;
 
-// Colour stops: dark → vivid-red → orange → amber → gold → green
+// Colour stops: dead → blood red → orange → amber → gold (brand colour)
 const READINESS_STOPS = [
   [0.00, [18,  18,  18 ]],
-  [0.25, [215, 30,  20 ]],
-  [0.50, [225, 85,  20 ]],
-  [0.70, [210, 145, 30 ]],
-  [0.87, [201, 168, 76 ]],
-  [1.00, [76,  175, 80 ]],
+  [0.25, [160, 15,  10 ]],
+  [0.50, [215, 60,  10 ]],
+  [0.70, [235, 115, 15 ]],
+  [0.87, [220, 165, 40 ]],
+  [1.00, [201, 168, 76 ]],
 ];
 const readinessColor = r => {
   const stops = READINESS_STOPS;
@@ -117,9 +118,9 @@ function fmtTimeSince(h) {
 
 // ── HD Score config ────────────────────────────────────────────────────────────
 const PILLAR_DEFS = [
-  { key: 'rest',      icon: 'clock',        label: 'REST',      color: '#60A5FA' },
   { key: 'routine',   icon: 'check-circle', label: 'ROUTINE',   color: '#A78BFA' },
   { key: 'nutrition', icon: 'target',       label: 'NUTRITION', color: '#34D399' },
+  { key: 'rest',      icon: 'clock',        label: 'REST',      color: '#60A5FA' },
 ];
 
 const RANGE_OPTIONS = [
@@ -679,7 +680,19 @@ export default function HomeScreen({ navigation }) {
   const [showWarning,    setShowWarning]    = useState(false);
   const [warnReadiness,  setWarnReadiness]  = useState(0);
 
-  const shimmerAnim = useRef(new Animated.Value(-200)).current;
+  const shimmerAnim  = useRef(new Animated.Value(-200)).current;
+  const [animReadiness, setAnimReadiness] = useState(0.01);
+
+  useEffect(() => {
+    if (!DEV_ANIMATE) return;
+    let r = 0.01;
+    const id = setInterval(() => {
+      r = Math.min(r + 0.004, 1);
+      setAnimReadiness(r);
+      if (r >= 1) clearInterval(id);
+    }, 50);
+    return () => clearInterval(id);
+  }, []);
 
   useFocusEffect(useCallback(() => { loadData(); }, []));
 
@@ -768,7 +781,7 @@ export default function HomeScreen({ navigation }) {
     ? (hourOfDay > 0 ? `${daysSince}d ${hourOfDay}h` : `${daysSince}d`)
     : '0d';
   const firstName = profile?.name?.split(' ')[0] || null;
-  const readiness = calcReadiness(hoursSince);
+  const readiness = DEV_ANIMATE ? animReadiness : calcReadiness(hoursSince);
   const optimal   = readiness >= 0.87;
 
   useEffect(() => {
@@ -786,12 +799,15 @@ export default function HomeScreen({ navigation }) {
     return () => { cancelled = true; };
   }, [optimal]);
 
-  // Header computed values
-  const totalSessions = allWorkouts.length;
+
+  // Header computed values — only count workouts with at least one set logged
+  const workedOutIds = new Set(allSets.map(s => s.workout_id));
+  const completedWorkouts = allWorkouts.filter(w => workedOutIds.has(w.id));
+  const totalSessions = completedWorkouts.length;
   const weeksOnProgram = (() => {
-    if (!allWorkouts.length) return null;
+    if (!completedWorkouts.length) return null;
     const tsStr = w => w.date || w.created_at || w.inserted_at || '';
-    const sorted = [...allWorkouts].sort((a, b) => tsStr(a).localeCompare(tsStr(b)));
+    const sorted = [...completedWorkouts].sort((a, b) => tsStr(a).localeCompare(tsStr(b)));
     const first = parseSupabaseDate(tsStr(sorted[0]));
     if (isNaN(first.getTime())) return null;
     const weeks = Math.floor((Date.now() - first.getTime()) / (7 * 24 * 3600 * 1000));
@@ -886,7 +902,9 @@ export default function HomeScreen({ navigation }) {
                     <Text style={s.goalText}>{goalLabel}</Text>
                   </View>
                 )}
-                <Text style={s.meta}>TAP TO LOG →</Text>
+                <View style={s.logBtn}>
+                  <Text style={s.logBtnText}>+ LOG</Text>
+                </View>
               </View>
             </View>
 
@@ -896,12 +914,12 @@ export default function HomeScreen({ navigation }) {
                   <Text style={[s.calNum, calOver && { color: COLORS.red }]}>
                     {Math.abs(remaining).toLocaleString()}
                   </Text>
-                  <Text style={s.calUnit}>{calOver ? 'kcal over' : 'kcal remaining'}</Text>
+                  <Text style={s.calUnit}>{calOver ? 'kcal over' : 'kcal left'}</Text>
                 </View>
                 <View style={s.track}>
                   <View style={[s.trackFill, {
                     width: `${calPct * 100}%`,
-                    backgroundColor: calOver ? COLORS.red : COLORS.gold,
+                    backgroundColor: '#34D399',
                   }]} />
                 </View>
                 <View style={s.row}>
@@ -960,7 +978,7 @@ export default function HomeScreen({ navigation }) {
       </Modal>
 
       {/* Pinned START WORKOUT */}
-      <View style={[s.trainBar, { paddingBottom: 12 + insets.bottom }]}>
+      <View style={s.trainBar}>
         {(() => {
           const fillColor  = readinessColor(readiness);
           const handlePress = () => {
@@ -970,7 +988,7 @@ export default function HomeScreen({ navigation }) {
           };
           return (
             <TouchableOpacity
-              style={[s.trainBtn, { borderColor: fillColor, borderWidth: 1.5 }]}
+              style={[s.trainBtn, { height: 58 }]}
               onPress={handlePress}
               activeOpacity={0.82}
             >
@@ -1054,19 +1072,19 @@ const s = StyleSheet.create({
   trackFill: { height:4, borderRadius:2 },
   goalBadge: { backgroundColor:COLORS.goldFaint, borderRadius:RADIUS.sm, paddingHorizontal:9, paddingVertical:3, borderWidth:1, borderColor:COLORS.goldBorder },
   goalText:  { color:COLORS.gold, fontSize:9, letterSpacing:1.5, fontWeight:FONT.semibold },
+  logBtn:    { backgroundColor:'#34D39922', borderRadius:RADIUS.sm, paddingHorizontal:10, paddingVertical:4, borderWidth:1, borderColor:'#34D39966' },
+  logBtnText:{ color:'#34D399', fontSize:9, fontWeight:FONT.black, letterSpacing:2 },
 
   // Train bar
   trainBar:      { position:'absolute', bottom:0, left:0, right:0,
-                   paddingHorizontal:SPACING.screen, paddingTop:10,
-                   backgroundColor:COLORS.background, borderTopWidth:1, borderTopColor:'#222' },
-  trainBtn:      { height:58, borderRadius:100, overflow:'hidden',
-                   backgroundColor:'#111' },
+                   borderTopWidth:1, borderTopColor:'rgba(255,255,255,0.12)' },
+  trainBtn:      { borderRadius:0, overflow:'hidden', backgroundColor:'#111' },
   trainFill:     { position:'absolute', left:0, top:0, bottom:0 },
   shimmerHalo:   { position:'absolute', top:-30, bottom:-30, width:110,
                    backgroundColor:'rgba(255,255,255,0.10)' },
   shimmerCore:   { position:'absolute', top:-30, bottom:-30, width:44,
                    backgroundColor:'rgba(255,255,255,0.38)', marginLeft:33 },
-  trainTextWrap: { ...StyleSheet.absoluteFillObject, alignItems:'center', justifyContent:'center', gap:3 },
+  trainTextWrap: { ...StyleSheet.absoluteFillObject, alignItems:'center', justifyContent:'center', gap:3, paddingBottom: 0 },
   trainBtnText:  { color:'#fff', fontSize:14, fontWeight:FONT.black, letterSpacing:3 },
   trainBtnSub:   { color:'rgba(255,255,255,0.4)', fontSize:8, fontWeight:FONT.bold, letterSpacing:2 },
 });

@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Text, View, ActivityIndicator, Platform, StyleSheet } from 'react-native';
+import { Text, View, ActivityIndicator, Platform, StyleSheet, Animated, AppState } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as NavigationBar from 'expo-navigation-bar';
@@ -18,6 +18,8 @@ import ProgressScreen from './src/screens/ProgressScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import WorkoutHistoryScreen from './src/screens/WorkoutHistoryScreen';
 import ExerciseSelectionScreen from './src/screens/ExerciseSelectionScreen';
+import ProgrammeSelectionScreen from './src/screens/ProgrammeSelectionScreen';
+import TwoWaySplitSetupScreen from './src/screens/TwoWaySplitSetupScreen';
 import CalorieTrackerScreen from './src/screens/CalorieTrackerScreen';
 import HDScoreDetailScreen from './src/screens/HDScoreDetailScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
@@ -37,6 +39,13 @@ function TabIcon({ name, color, focused }) {
 const ti = StyleSheet.create({
   wrap: { alignItems: 'center', justifyContent: 'center', gap: 4 },
   dot:  { width: 3, height: 3, borderRadius: 2, backgroundColor: '#c9a84c' },
+});
+
+const sp = StyleSheet.create({
+  overlay:  { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+              backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', zIndex: 999 },
+  wordmark: { color: '#c9a84c', fontSize: 36, fontWeight: '900', letterSpacing: 12 },
+  sub:      { color: '#333', fontSize: 10, fontWeight: '700', letterSpacing: 6, marginTop: 10 },
 });
 
 function TabNavigator() {
@@ -89,19 +98,28 @@ function TabNavigator() {
 
 // ─── Dev mode ─────────────────────────────────────────────────────────────────
 // Set to 'onboarding', 'exercise', 'main', or false (real auth)
-const DEV_SCREEN = false;
+const DEV_SCREEN = 'exercise';
 
 export default function App() {
   const [session, setSession]                   = useState(null);
   const [loading, setLoading]                   = useState(true);
   const [needsOnboarding, setNeedsOnboarding]   = useState(false);
   const [needsRoutine, setNeedsRoutine]         = useState(false);
+  const [selectedProgramme, setSelectedProgramme] = useState(null);
+  const [showSplash, setShowSplash]             = useState(false);
+  const splashOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    if (Platform.OS === 'android') {
+    if (Platform.OS !== 'android') return;
+    const hideNavBar = () => {
       NavigationBar.setVisibilityAsync('hidden');
       NavigationBar.setBehaviorAsync('overlay-swipe');
-    }
+    };
+    hideNavBar();
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'active') hideNavBar();
+    });
+    return () => sub.remove();
   }, []);
 
   useEffect(() => {
@@ -164,12 +182,33 @@ export default function App() {
     }
   };
 
+  useEffect(() => {
+    if (!loading && session && !needsOnboarding && !needsRoutine) {
+      splashOpacity.setValue(0);
+      setShowSplash(true);
+      Animated.sequence([
+        Animated.timing(splashOpacity, { toValue: 1, duration: 600, useNativeDriver: true }),
+        Animated.delay(1800),
+        Animated.timing(splashOpacity, { toValue: 0, duration: 800, useNativeDriver: true }),
+      ]).start(() => setShowSplash(false));
+    }
+  }, [loading]);
+
   const handleOnboardingComplete = () => {
     setNeedsOnboarding(false);
     setNeedsRoutine(true);
   };
 
-  const handleRoutineComplete = () => {
+  const handleRoutineComplete = async () => {
+    // Save the chosen programme type to the profile
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user && selectedProgramme) {
+        await supabase.from('profiles')
+          .update({ routine_type: selectedProgramme })
+          .eq('id', user.id);
+      }
+    } catch (_) {}
     setNeedsRoutine(false);
   };
 
@@ -186,12 +225,31 @@ export default function App() {
   }
 
   if (needsRoutine) {
-    return <ExerciseSelectionScreen onComplete={handleRoutineComplete} />;
+    // Step 1 — pick a programme
+    if (!selectedProgramme) {
+      return <ProgrammeSelectionScreen onSelect={setSelectedProgramme} />;
+    }
+    // Step 2 — Consolidation uses the existing exercise picker
+    // Ideal Routine and Two-Way Split will get their own flows later
+    if (selectedProgramme === 'consolidation') {
+      return <ExerciseSelectionScreen onComplete={handleRoutineComplete} onBack={() => setSelectedProgramme(null)} />;
+    }
+    if (selectedProgramme === 'two_way') {
+      return <TwoWaySplitSetupScreen onComplete={handleRoutineComplete} onBack={() => setSelectedProgramme(null)} />;
+    }
+    // Ideal Routine — placeholder until its flow is built
+    return <ExerciseSelectionScreen onComplete={handleRoutineComplete} onBack={() => setSelectedProgramme(null)} />;
   }
 
   return (
     <SafeAreaProvider>
     <ErrorBoundary>
+      {showSplash && (
+        <Animated.View style={[sp.overlay, { opacity: splashOpacity }]}>
+          <Text style={sp.wordmark}>MENTZER</Text>
+          <Text style={sp.sub}>HEAVY DUTY</Text>
+        </Animated.View>
+      )}
       <NavigationContainer>
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           {!session ? (

@@ -1,28 +1,40 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList,
-  ActivityIndicator, TouchableOpacity,
+  ActivityIndicator, Pressable, RefreshControl,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { Feather } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import Card from '../components/Card';
 import ScreenHeader from '../components/ScreenHeader';
-import { COLORS, FONT, RADIUS, SPACING } from '../theme';
+import { COLORS, FONT, TYPE, RADIUS, SPACING } from '../theme';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-const DAYS   = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
-const MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+const DAYS   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+// Supabase returns microsecond timestamps; Hermes only parses milliseconds
+const parseDate = (str) => new Date(String(str).replace(/(\.\d{3})\d*(Z|[+-]\d{2}:\d{2})$/, '$1$2'));
 
 const formatDate = (dateStr) => {
-  const d = new Date(dateStr);
-  return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  const d = parseDate(dateStr);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}${sameYear ? '' : ` ${d.getFullYear()}`}`;
 };
 
 const daysAgo = (dateStr) => {
-  const diff = Math.floor((Date.now() - new Date(dateStr)) / 86400000);
-  if (diff === 0) return 'TODAY';
-  if (diff === 1) return 'YESTERDAY';
-  return `${diff} DAYS AGO`;
+  const diff = Math.floor((Date.now() - parseDate(dateStr)) / 86400000);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  return `${diff} days ago`;
+};
+
+// Rest gap colour — Mentzer's 4–7 day window is the target
+const gapColor = (days) => {
+  if (days < 4)  return COLORS.orange;
+  if (days <= 7) return COLORS.green;
+  return COLORS.textMuted;
 };
 
 const groupByExercise = (sets) => {
@@ -44,53 +56,54 @@ function WorkoutCard({ item }) {
 
   return (
     <Card style={styles.workoutCard}>
-      {/* Header */}
-      <TouchableOpacity
+      <Pressable
         style={styles.cardHeader}
         onPress={() => setExpanded(e => !e)}
-        activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        accessibilityLabel={`${formatDate(item.date)}, ${daysAgo(item.date)}. ${item.exercises.length} exercises.${item.gapDays !== null ? ` ${Math.round(item.gapDays)} days after the previous session.` : ''}`}
+        accessibilityHint={expanded ? 'Hides the exercises' : 'Shows the exercises'}
       >
         <View style={styles.dateBlock}>
           <Text style={styles.dateText}>{formatDate(item.date)}</Text>
           <Text style={styles.agoText}>{daysAgo(item.date)}</Text>
         </View>
-        <View style={styles.headerRight}>
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>
-              {item.exercises.length} EX · {item.allSets.length} SETS
+        {item.gapDays !== null && (
+          <View style={[styles.gapBadge, { borderColor: gapColor(item.gapDays) + '66' }]}>
+            <Feather name="moon" size={11} color={gapColor(item.gapDays)} />
+            <Text style={[styles.gapText, { color: gapColor(item.gapDays) }]}>
+              {item.gapDays < 1 ? '<1' : Math.round(item.gapDays)}d rest
             </Text>
           </View>
-          <Text style={styles.chevron}>{expanded ? '▲' : '▼'}</Text>
-        </View>
-      </TouchableOpacity>
+        )}
+        <Feather name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color={COLORS.textDim} />
+      </Pressable>
 
-      {/* Volume stat */}
-      <View style={styles.volumeRow}>
-        <Text style={styles.volumeLabel}>TOTAL VOLUME</Text>
-        <Text style={styles.volumeValue}>{vol.toLocaleString()} kg</Text>
-      </View>
-
-      {/* Exercise breakdown */}
       {expanded && (
-        <>
-          <View style={styles.divider} />
+        <View style={styles.exerciseList}>
           {item.exercises.map((ex, i) => (
             <View key={i} style={[styles.exerciseRow, i < item.exercises.length - 1 && styles.exerciseBorder]}>
-              <Text style={styles.exerciseName}>{ex.name.toUpperCase()}</Text>
+              <Text style={styles.exerciseName} numberOfLines={1}>{ex.name}</Text>
               <View style={styles.setsRow}>
                 {ex.sets.map((s, j) => (
-                  <View key={j} style={styles.setChip}>
-                    <Text style={styles.setWeight}>{s.weight_kg}</Text>
-                    <Text style={styles.setUnit}>kg</Text>
-                    <Text style={styles.setSep}>×</Text>
-                    <Text style={styles.setReps}>{s.reps}</Text>
-                  </View>
+                  <Text
+                    key={j}
+                    style={styles.setText}
+                    accessibilityLabel={`${s.weight_kg} kilograms for ${s.reps} reps`}
+                  >
+                    {s.weight_kg}<Text style={styles.setUnit}>kg</Text> × {s.reps}
+                  </Text>
                 ))}
               </View>
             </View>
           ))}
-        </>
+        </View>
       )}
+
+      <View style={styles.footerRow}>
+        <Text style={styles.footerText}>{item.exercises.length} exercise{item.exercises.length === 1 ? '' : 's'}</Text>
+        <Text style={styles.footerText}>{vol.toLocaleString()} kg volume</Text>
+      </View>
     </Card>
   );
 }
@@ -99,6 +112,7 @@ function WorkoutCard({ item }) {
 export default function WorkoutHistoryScreen() {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -107,7 +121,6 @@ export default function WorkoutHistoryScreen() {
   );
 
   const loadData = async () => {
-    setLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
@@ -134,7 +147,13 @@ export default function WorkoutHistoryScreen() {
             exercises: groupByExercise(wSets),
           };
         })
-        .filter(w => w.exercises.length > 0);
+        .filter(w => w.exercises.length > 0)
+        .map((w, i, arr) => {
+          // Rest since the previous (older) session in the list
+          const prev = arr[i + 1];
+          const gapDays = prev ? (parseDate(w.date) - parseDate(prev.date)) / 86400000 : null;
+          return { ...w, gapDays };
+        });
       setHistory(merged);
 
     } catch (e) {
@@ -144,17 +163,21 @@ export default function WorkoutHistoryScreen() {
     }
   };
 
+  const onRefresh = async () => { setRefreshing(true); await loadData(); setRefreshing(false); };
+
   // ── Summary stats ────────────────────────────────────────────────────────
   const totalSessions = history.length;
-  const totalSets     = history.reduce((n, w) => n + w.allSets.length, 0);
+  const gaps          = history.map(h => h.gapDays).filter(g => g !== null);
+  const avgGap        = gaps.length ? gaps.reduce((a, b) => a + b, 0) / gaps.length : null;
+  const inWindow      = gaps.filter(g => g >= 4 && g <= 7).length;
 
   // ── Render ────────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <View style={styles.container}>
-        <ScreenHeader title="HISTORY" />
+        <ScreenHeader title="History" />
         <View style={styles.center}>
-          <ActivityIndicator color={COLORS.gold} size="large" />
+          <ActivityIndicator color={COLORS.gold} size="large" accessibilityLabel="Loading history" />
         </View>
       </View>
     );
@@ -162,90 +185,89 @@ export default function WorkoutHistoryScreen() {
 
   return (
     <View style={styles.container}>
-      <ScreenHeader
-        title="HISTORY"
-        subtitle={totalSessions > 0 ? `${totalSessions} SESSIONS · ${totalSets} TOTAL SETS` : null}
-      />
+      <ScreenHeader title="History" subtitle={totalSessions > 0 ? 'EVERY SESSION, EVERY SET' : null} />
 
       {history.length === 0 ? (
         <View style={styles.center}>
-          <Text style={styles.emptyIcon}>🏋️</Text>
-          <Text style={styles.emptyTitle}>No sessions yet.</Text>
+          <View style={styles.emptyIcon}>
+            <Feather name="calendar" size={28} color={COLORS.gold} />
+          </View>
+          <Text style={styles.emptyTitle} accessibilityRole="header">No sessions yet</Text>
           <Text style={styles.emptySub}>
-            Log your first workout — every set will be recorded here.
+            Log your first workout and every set will be recorded here, along with the rest you took between sessions.
           </Text>
         </View>
       ) : (
         <FlatList
           data={history}
-          keyExtractor={item => item.id}
+          keyExtractor={item => String(item.id)}
           renderItem={({ item }) => <WorkoutCard item={item} />}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.gold} />}
+          ListHeaderComponent={
+            <View style={styles.summary}>
+              <Summary value={`${totalSessions}`} label="Sessions" />
+              <Summary value={avgGap !== null ? `${avgGap.toFixed(1)}d` : '—'} label="Avg rest" />
+              <Summary
+                value={gaps.length ? `${inWindow}/${gaps.length}` : '—'}
+                label="In 4–7d window"
+                color={gaps.length && inWindow === gaps.length ? COLORS.green : undefined}
+              />
+            </View>
+          }
         />
       )}
     </View>
   );
 }
 
+function Summary({ value, label, color }) {
+  return (
+    <View style={styles.summaryItem} accessible accessibilityLabel={`${label}: ${value}`}>
+      <Text style={[styles.summaryValue, color && { color }]}>{value}</Text>
+      <Text style={styles.summaryLabel}>{label}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
-  center:    { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: SPACING.xl },
+  center:    { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: SPACING.xl, paddingBottom: 60 },
 
   list:        { paddingHorizontal: SPACING.screen, paddingBottom: 40 },
-  workoutCard: { marginBottom: 14 },
+  workoutCard: { marginBottom: 12, paddingVertical: SPACING.md },
+
+  summary:      { flexDirection: 'row', backgroundColor: COLORS.surface, borderRadius: RADIUS.xl,
+                  borderWidth: 1, borderColor: COLORS.border, paddingVertical: SPACING.md, marginBottom: SPACING.lg },
+  summaryItem:  { flex: 1, alignItems: 'center' },
+  summaryValue: { color: COLORS.white, fontSize: 22, fontWeight: FONT.black, fontVariant: ['tabular-nums'] },
+  summaryLabel: { ...TYPE.caption, color: COLORS.textMuted, marginTop: 2 },
 
   // Card header
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 10,
-  },
-  dateBlock: { flex: 1 },
-  dateText:  { color: COLORS.white, fontSize: 15, fontWeight: FONT.bold },
-  agoText:   { color: COLORS.textDim, fontSize: 10, letterSpacing: 1.5, marginTop: 3 },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 2 },
-  badge:     {
-    backgroundColor: COLORS.goldFaint,
-    borderRadius: RADIUS.sm,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: COLORS.goldBorder,
-  },
-  badgeText: { color: COLORS.gold, fontSize: 9, fontWeight: FONT.bold, letterSpacing: 1 },
-  chevron:   { color: COLORS.textDim, fontSize: 10 },
-
-  // Volume
-  volumeRow:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  volumeLabel: { color: COLORS.textDim, fontSize: 10, letterSpacing: 2 },
-  volumeValue: { color: COLORS.textMuted, fontSize: 12, fontWeight: FONT.semibold },
-
-  divider: { height: 1, backgroundColor: COLORS.border, marginVertical: 14 },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44 },
+  dateBlock:  { flex: 1 },
+  dateText:   { ...TYPE.heading, color: COLORS.white },
+  agoText:    { ...TYPE.caption, color: COLORS.textDim, marginTop: 2 },
+  gapBadge:   { flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderRadius: RADIUS.pill,
+                paddingHorizontal: 8, paddingVertical: 3 },
+  gapText:    { fontSize: 12, fontWeight: FONT.semibold },
 
   // Exercises
-  exerciseRow:    { paddingVertical: 10 },
+  exerciseList:   { marginTop: 10, backgroundColor: COLORS.surfaceDark, borderRadius: RADIUS.md, paddingHorizontal: 12 },
+  exerciseRow:    { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, gap: 12 },
   exerciseBorder: { borderBottomWidth: 1, borderBottomColor: COLORS.border },
-  exerciseName:   {
-    color: COLORS.textDim, fontSize: 10, fontWeight: FONT.bold,
-    letterSpacing: 2, marginBottom: 8,
-  },
-  setsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  setChip: {
-    flexDirection: 'row', alignItems: 'baseline',
-    backgroundColor: COLORS.surfaceDark,
-    borderRadius: RADIUS.sm,
-    paddingHorizontal: 10, paddingVertical: 6,
-    borderWidth: 1, borderColor: COLORS.border,
-  },
-  setWeight: { color: COLORS.white, fontSize: 14, fontWeight: FONT.bold },
-  setUnit:   { color: COLORS.textDim, fontSize: 10, marginLeft: 1, marginRight: 4 },
-  setSep:    { color: COLORS.textDim, fontSize: 11, marginRight: 4 },
-  setReps:   { color: COLORS.white, fontSize: 14, fontWeight: FONT.bold },
+  exerciseName:   { flex: 1, color: COLORS.textSecondary, fontSize: 14, fontWeight: FONT.medium },
+  setsRow:        { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-end' },
+  setText:        { color: COLORS.white, fontSize: 15, fontWeight: FONT.bold, fontVariant: ['tabular-nums'] },
+  setUnit:        { color: COLORS.textMuted, fontSize: 12, fontWeight: FONT.medium },
+
+  footerRow:  { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
+  footerText: { ...TYPE.caption, color: COLORS.textDim },
 
   // Empty state
-  emptyIcon:  { fontSize: 52, marginBottom: 20 },
-  emptyTitle: { color: COLORS.white, fontSize: 22, fontWeight: FONT.black, marginBottom: 10, textAlign: 'center' },
-  emptySub:   { color: COLORS.textMuted, fontSize: 14, textAlign: 'center', lineHeight: 22 },
+  emptyIcon:  { width: 64, height: 64, borderRadius: 32, backgroundColor: COLORS.goldFaint,
+                alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
+  emptyTitle: { ...TYPE.title, color: COLORS.white, marginBottom: 10, textAlign: 'center' },
+  emptySub:   { ...TYPE.body, color: COLORS.textMuted, textAlign: 'center' },
 });

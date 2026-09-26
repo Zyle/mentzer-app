@@ -9,6 +9,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { getRecoveryStatus } from '../lib/progression';
 import { getRandomQuote } from '../data/quotes';
+import { getSessions, workoutAdherence, calcRoutineScore } from '../lib/routineScore';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import SectionTitle from '../components/SectionTitle';
@@ -157,15 +158,6 @@ const calcRestScore = workouts => {
   return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
 };
 
-const calcRoutineScore = (workouts, sets, routine) => {
-  if (!workouts.length || !routine.length) return null;
-  const scores = workouts.map(w => {
-    const unique = new Set(sets.filter(s => s.workout_id === w.id).map(s => s.exercise_name)).size;
-    return Math.min(unique / routine.length, 1) * 100;
-  });
-  return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
-};
-
 const calcNutritionScore = (calLogs, calTarget, rangeDays) => {
   if (!calTarget || !calLogs.length) return null;
   const byDate = {};
@@ -207,16 +199,14 @@ const getRestTip = rangeWkts => {
   return "Coming back is the hardest step and you've done it. One focused session every 5-7 days is genuinely all Mentzer ever prescribed. You've got everything you need to make this work consistently.";
 };
 
-const getRoutineTip = (rangeWkts, allSets, userRoutine) => {
-  if (!rangeWkts.length || !userRoutine.length) return null;
+const getRoutineTip = (rangeWkts, allSets, sessions) => {
+  const rows = workoutAdherence(rangeWkts, allSets, sessions);
+  if (!rows.length) return null;
 
-  const completions = rangeWkts.map(w => {
-    const unique = new Set(allSets.filter(s => s.workout_id === w.id).map(s => s.exercise_name)).size;
-    return unique / userRoutine.length;
-  });
+  const completions = rows.map(r => r.completion);
   const avg       = completions.reduce((a, b) => a + b, 0) / completions.length;
   const pct       = Math.round(avg * 100);
-  const rLen      = userRoutine.length;
+  const rLen      = Math.max(1, Math.round(rows.reduce((a, r) => a + r.session.exercises.length, 0) / rows.length));
   const avgDone   = Math.max(1, Math.round(avg * rLen));
   const missing   = rLen - avgDone;
   const stdDev    = Math.sqrt(completions.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / completions.length);
@@ -335,7 +325,7 @@ const getConstructiveTip = (scores, rangeWkts, allSets, rangeLogs, calTarget, ra
 
   let tip = null;
   if (weakest.key === 'rest')      tip = getRestTip(rangeWkts);
-  if (weakest.key === 'routine')   tip = getRoutineTip(rangeWkts, allSets, profile?.routine || []);
+  if (weakest.key === 'routine')   tip = getRoutineTip(rangeWkts, allSets, getSessions(profile));
   if (weakest.key === 'nutrition') tip = getNutritionTip(rangeLogs, calTarget, rangeDays, profile?.goal);
 
   return tip;
@@ -381,12 +371,12 @@ function HDScoreCard({ allWorkouts, allSets, calLogs, profile }) {
   const cutoffDate  = toLocalISO(new Date(cutoffMs));
   const rangeWkts   = allWorkouts.filter(w => wTs(w) >= cutoffMs);
   const rangeLogs   = calLogs.filter(l => l.date >= cutoffDate);
-  const userRoutine = profile?.routine || [];
+  const sessions    = getSessions(profile);
   const calTarget   = calcCalories(profile);
 
   const scores = {
     rest:      calcRestScore(rangeWkts),
-    routine:   calcRoutineScore(rangeWkts, allSets, userRoutine),
+    routine:   calcRoutineScore(rangeWkts, allSets, sessions),
     nutrition: calcNutritionScore(rangeLogs, calTarget, rangeDays),
   };
 

@@ -1,13 +1,16 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity,
+  View, Text, StyleSheet, FlatList, Pressable,
   TextInput, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import Card from '../components/Card';
-import { COLORS, FONT, RADIUS, SPACING } from '../theme';
+import Button from '../components/Button';
+import ScreenHeader from '../components/ScreenHeader';
+import { COLORS, FONT, TYPE, RADIUS, SPACING, HIT } from '../theme';
 
 const toDateStr = (d = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -25,6 +28,9 @@ export default function CalorieTrackerScreen({ navigation }) {
   const [name,     setName]     = useState('');
   const [cals,     setCals]     = useState('');
   const [userId,   setUserId]   = useState(null);
+  const [adding,   setAdding]   = useState(false);
+  const [error,    setError]    = useState('');
+  const calsRef = useRef(null);
   const today = toDateStr();
 
   useFocusEffect(useCallback(() => { loadData(); }, []));
@@ -39,7 +45,7 @@ export default function CalorieTrackerScreen({ navigation }) {
       ]);
       if (profRes.data) setTarget(calcTarget(profRes.data));
       const sorted = (logsRes.data || []).sort((a, b) =>
-        b.created_at.localeCompare(a.created_at)
+        (b.created_at || '').localeCompare(a.created_at || '')
       );
       setEntries(sorted);
     } catch (e) { console.error('CalorieTracker:', e); }
@@ -47,15 +53,21 @@ export default function CalorieTrackerScreen({ navigation }) {
 
   const addEntry = async () => {
     const kcal = parseInt(cals);
-    if (!name.trim() || !kcal || isNaN(kcal) || kcal <= 0) return;
-    const { data, error } = await supabase
+    if (!name.trim()) { setError('Add a name for this food or meal.'); return; }
+    if (!kcal || isNaN(kcal) || kcal <= 0) { setError('Enter the calories as a whole number.'); return; }
+    setError('');
+    setAdding(true);
+    const { data, error: insertError } = await supabase
       .from('calorie_logs')
       .insert({ user_id: userId, date: today, entry_name: name.trim(), calories: kcal })
       .select().single();
-    if (!error && data) {
+    setAdding(false);
+    if (!insertError && data) {
       setEntries(prev => [data, ...prev]);
       setName('');
       setCals('');
+    } else {
+      setError('Could not save that entry. Check your connection and try again.');
     }
   };
 
@@ -69,81 +81,98 @@ export default function CalorieTrackerScreen({ navigation }) {
   const over      = remaining < 0;
   const pct       = Math.min(consumed / target, 1);
 
-  return (
-    <KeyboardAvoidingView
-      style={[s.container, { paddingBottom: insets.bottom }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      {/* Header */}
-      <View style={[s.header, { paddingTop: 44 + insets.top }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}>
-          <Text style={s.backText}>← BACK</Text>
-        </TouchableOpacity>
-        <Text style={s.headerTitle}>CALORIES</Text>
-      </View>
-
+  const header = (
+    <>
       {/* Summary */}
       <Card style={s.summaryCard}>
-        <Text style={s.remainLabel}>{over ? 'OVER TARGET BY' : 'REMAINING TODAY'}</Text>
-        <Text style={[s.remainNum, over && { color: COLORS.red }]}>
-          {Math.abs(remaining).toLocaleString()}
-          <Text style={s.kcalUnit}> kcal</Text>
-        </Text>
-        <View style={s.track}>
-          <View style={[s.fill, { width: `${pct * 100}%`, backgroundColor: over ? COLORS.red : COLORS.gold }]} />
-        </View>
-        <View style={s.statsRow}>
-          <Text style={s.stat}>{consumed.toLocaleString()} consumed</Text>
-          <Text style={s.stat}>{target.toLocaleString()} target</Text>
+        <View
+          accessible
+          accessibilityLabel={`${Math.abs(remaining)} calories ${over ? 'over target' : 'remaining today'}. ${consumed} of ${target} eaten.`}
+        >
+          <Text style={s.remainLabel}>{over ? 'OVER TARGET BY' : 'REMAINING TODAY'}</Text>
+          <Text style={[s.remainNum, over && { color: COLORS.red }]}>
+            {Math.abs(remaining).toLocaleString()}
+            <Text style={s.kcalUnit}> kcal</Text>
+          </Text>
+          <View style={s.track}>
+            <View style={[s.fill, { width: `${pct * 100}%`, backgroundColor: over ? COLORS.red : COLORS.teal }]} />
+          </View>
+          <View style={s.statsRow}>
+            <Text style={s.stat}>{consumed.toLocaleString()} eaten</Text>
+            <Text style={s.stat}>{target.toLocaleString()} target</Text>
+          </View>
         </View>
       </Card>
 
       {/* Add entry */}
       <Card style={s.addCard}>
+        <Text style={s.addTitle} accessibilityRole="header">Add food</Text>
         <View style={s.addRow}>
           <TextInput
             style={[s.input, { flex: 1 }]}
-            placeholder="Food or meal..."
-            placeholderTextColor={COLORS.textDim}
+            placeholder="Food or meal"
+            placeholderTextColor={COLORS.textFaint}
             value={name}
-            onChangeText={setName}
+            onChangeText={t => { setName(t); setError(''); }}
             returnKeyType="next"
+            onSubmitEditing={() => calsRef.current?.focus()}
+            accessibilityLabel="Food or meal name"
           />
           <TextInput
+            ref={calsRef}
             style={[s.input, s.calInput]}
             placeholder="kcal"
-            placeholderTextColor={COLORS.textDim}
+            placeholderTextColor={COLORS.textFaint}
             value={cals}
-            onChangeText={setCals}
+            onChangeText={t => { setCals(t); setError(''); }}
             keyboardType="number-pad"
             returnKeyType="done"
             onSubmitEditing={addEntry}
+            accessibilityLabel="Calories"
           />
-          <TouchableOpacity style={s.addBtn} onPress={addEntry}>
-            <Text style={s.addBtnText}>ADD</Text>
-          </TouchableOpacity>
         </View>
+        {error ? (
+          <Text style={s.error} accessibilityLiveRegion="polite" accessibilityRole="alert">{error}</Text>
+        ) : null}
+        <Button title="ADD" icon="plus" size="md" onPress={addEntry} loading={adding} style={{ marginTop: SPACING.md }} />
       </Card>
 
-      {/* Entries list */}
+      {entries.length > 0 && <Text style={s.listTitle} accessibilityRole="header">TODAY</Text>}
+    </>
+  );
+
+  return (
+    <KeyboardAvoidingView
+      style={s.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <ScreenHeader title="Calories" subtitle="TODAY'S LOG" onBack={() => navigation.goBack()} />
+
       <FlatList
         data={entries}
-        keyExtractor={i => i.id}
-        contentContainerStyle={s.list}
+        keyExtractor={i => String(i.id)}
+        ListHeaderComponent={header}
+        contentContainerStyle={[s.list, { paddingBottom: insets.bottom + 40 }]}
+        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
-          <Text style={s.empty}>No entries yet. Log your first meal above.</Text>
+          <View style={s.emptyWrap}>
+            <Feather name="coffee" size={22} color={COLORS.textDim} />
+            <Text style={s.empty}>Nothing logged yet today.{'\n'}Rough estimates are fine. Consistency matters more than precision.</Text>
+          </View>
         }
         renderItem={({ item }) => (
           <View style={s.entry}>
             <Text style={s.entryName} numberOfLines={1}>{item.entry_name}</Text>
             <Text style={s.entryCal}>{item.calories.toLocaleString()} kcal</Text>
-            <TouchableOpacity
+            <Pressable
               onPress={() => deleteEntry(item.id)}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              style={({ pressed }) => [s.delBtn, pressed && { backgroundColor: COLORS.redFaint }]}
+              accessibilityRole="button"
+              accessibilityLabel={`Delete ${item.entry_name}, ${item.calories} calories`}
             >
-              <Text style={s.del}>✕</Text>
-            </TouchableOpacity>
+              <Feather name="trash-2" size={16} color={COLORS.textMuted} />
+            </Pressable>
           </View>
         )}
       />
@@ -153,40 +182,38 @@ export default function CalorieTrackerScreen({ navigation }) {
 
 const s = StyleSheet.create({
   container:    { flex: 1, backgroundColor: COLORS.background },
-  header:       { paddingHorizontal: SPACING.screen, paddingBottom: SPACING.lg },
-  backBtn:      { marginBottom: 12 },
-  backText:     { color: COLORS.textDim, fontSize: 11, letterSpacing: 2 },
-  headerTitle:  { fontSize: 34, fontWeight: FONT.black, color: COLORS.white, letterSpacing: 6 },
+  list:         { paddingHorizontal: SPACING.screen },
 
-  summaryCard:  { marginHorizontal: SPACING.screen, marginBottom: 8 },
-  remainLabel:  { color: COLORS.textDim, fontSize: 10, letterSpacing: 2, marginBottom: 6 },
-  remainNum:    { color: COLORS.white, fontSize: 42, fontWeight: FONT.black, letterSpacing: -1, marginBottom: 10 },
-  kcalUnit:     { fontSize: 14, fontWeight: FONT.medium, letterSpacing: 0 },
-  track:        { height: 4, backgroundColor: COLORS.border, borderRadius: 2, marginBottom: 8 },
-  fill:         { height: 4, borderRadius: 2 },
+  summaryCard:  { marginBottom: 12 },
+  remainLabel:  { ...TYPE.overline, color: COLORS.textDim, marginBottom: 6 },
+  remainNum:    { color: COLORS.white, fontSize: 44, fontWeight: FONT.black, letterSpacing: -1, marginBottom: 12, fontVariant: ['tabular-nums'] },
+  kcalUnit:     { fontSize: 16, fontWeight: FONT.medium, letterSpacing: 0, color: COLORS.textMuted },
+  track:        { height: 8, backgroundColor: COLORS.border, borderRadius: 4, marginBottom: 10, overflow: 'hidden' },
+  fill:         { height: 8, borderRadius: 4 },
   statsRow:     { flexDirection: 'row', justifyContent: 'space-between' },
-  stat:         { color: COLORS.textDim, fontSize: 10, letterSpacing: 1 },
+  stat:         { color: COLORS.textMuted, fontSize: 13 },
 
-  addCard:      { marginHorizontal: SPACING.screen, marginBottom: 8 },
+  addCard:      { marginBottom: 8 },
+  addTitle:     { ...TYPE.heading, color: COLORS.white, marginBottom: 12 },
   addRow:       { flexDirection: 'row', alignItems: 'center', gap: 8 },
   input: {
-    backgroundColor: COLORS.surfaceDark, borderRadius: RADIUS.sm,
+    backgroundColor: COLORS.surfaceDark, borderRadius: RADIUS.md,
     borderWidth: 1, borderColor: COLORS.border,
-    color: COLORS.white, fontSize: 14,
-    paddingHorizontal: 12, paddingVertical: 10,
+    color: COLORS.white, fontSize: 16,
+    paddingHorizontal: 14, minHeight: HIT,
   },
-  calInput:     { width: 72, textAlign: 'center' },
-  addBtn:       { backgroundColor: COLORS.gold, borderRadius: RADIUS.sm, paddingHorizontal: 14, paddingVertical: 10 },
-  addBtnText:   { color: '#000', fontSize: 11, fontWeight: FONT.black, letterSpacing: 1.5 },
+  calInput:     { width: 92, textAlign: 'center' },
+  error:        { ...TYPE.callout, color: COLORS.red, marginTop: 10 },
 
-  list:         { paddingHorizontal: SPACING.screen, paddingBottom: 40 },
+  listTitle:    { ...TYPE.overline, color: COLORS.textDim, marginTop: SPACING.lg, marginBottom: 4 },
   entry: {
     flexDirection: 'row', alignItems: 'center',
-    paddingVertical: 14,
+    minHeight: 56,
     borderBottomWidth: 1, borderBottomColor: COLORS.border,
   },
-  entryName:    { flex: 1, color: COLORS.white, fontSize: 14 },
-  entryCal:     { color: COLORS.gold, fontSize: 13, fontWeight: FONT.semibold, marginRight: 14 },
-  del:          { color: COLORS.textDim, fontSize: 12 },
-  empty:        { color: COLORS.textDim, fontSize: 13, textAlign: 'center', marginTop: 40 },
+  entryName:    { flex: 1, color: COLORS.white, fontSize: 15 },
+  entryCal:     { color: COLORS.gold, fontSize: 14, fontWeight: FONT.semibold, marginRight: 4, fontVariant: ['tabular-nums'] },
+  delBtn:       { width: HIT, height: HIT, borderRadius: HIT / 2, alignItems: 'center', justifyContent: 'center' },
+  emptyWrap:    { alignItems: 'center', gap: 10, marginTop: 36, paddingHorizontal: SPACING.lg },
+  empty:        { ...TYPE.callout, color: COLORS.textMuted, textAlign: 'center' },
 });

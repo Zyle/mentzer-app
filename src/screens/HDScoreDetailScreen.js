@@ -1,13 +1,15 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
-  TouchableOpacity, ActivityIndicator,
+  Pressable, ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
-import { COLORS, FONT, RADIUS, SPACING } from '../theme';
+import { getSessions, workoutAdherence, calcRoutineScore } from '../lib/routineScore';
+import ScreenHeader from '../components/ScreenHeader';
+import { COLORS, FONT, TYPE, RADIUS, SPACING } from '../theme';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 const toLocalISO = d => {
@@ -34,7 +36,7 @@ const RANGE_OPTIONS = [
   { label: '6M',  days: 180 },
 ];
 
-const overallColor = s => s >= 80 ? '#4ADE80' : s >= 60 ? '#FBBF24' : '#F87171';
+const overallColor = s => s >= 80 ? COLORS.green : s >= 60 ? COLORS.goldBright : COLORS.red;
 const getScoreLabel = s =>
   s >= 90 ? 'OPTIMAL' : s >= 75 ? 'DISCIPLINED' : s >= 60 ? 'ON TRACK' : s >= 40 ? 'NEEDS WORK' : 'OFF PROGRAM';
 
@@ -52,14 +54,6 @@ const calcRestScore = workouts => {
     else if (days >= 3)               scores.push(20);
     else                              scores.push(0);
   }
-  return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
-};
-const calcRoutineScore = (workouts, sets, routine) => {
-  if (!workouts.length || !routine.length) return null;
-  const scores = workouts.map(w => {
-    const unique = new Set(sets.filter(s => s.workout_id === w.id).map(s => s.exercise_name)).size;
-    return Math.min(unique / routine.length, 1) * 100;
-  });
   return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
 };
 const calcNutritionScore = (calLogs, calTarget, rangeDays) => {
@@ -98,15 +92,13 @@ const getRestTip = rangeWkts => {
   return "One focused session every 5-7 days is genuinely all Mentzer ever prescribed. You've got everything you need to make this work.";
 };
 
-const getRoutineTip = (rangeWkts, allSets, userRoutine) => {
-  if (!rangeWkts.length || !userRoutine.length) return null;
-  const completions = rangeWkts.map(w => {
-    const unique = new Set(allSets.filter(s => s.workout_id === w.id).map(s => s.exercise_name)).size;
-    return unique / userRoutine.length;
-  });
+const getRoutineTip = (rangeWkts, allSets, sessions) => {
+  const rows = workoutAdherence(rangeWkts, allSets, sessions);
+  if (!rows.length) return null;
+  const completions = rows.map(r => r.completion);
   const avg    = completions.reduce((a, b) => a + b, 0) / completions.length;
   const pct    = Math.round(avg * 100);
-  const rLen   = userRoutine.length;
+  const rLen   = Math.max(1, Math.round(rows.reduce((a, r) => a + r.session.exercises.length, 0) / rows.length));
   const miss   = rLen - Math.max(1, Math.round(avg * rLen));
   const stdDev = Math.sqrt(completions.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / completions.length);
   if (stdDev > 0.25 && avg > 0.6)
@@ -160,15 +152,15 @@ const getNutritionTip = (rangeLogs, calTarget, rangeDays, goal) => {
 // ── Visual helpers ─────────────────────────────────────────────────────────────
 const gapColor = days => {
   if (days < 3)   return COLORS.red;
-  if (days < 4)   return '#FB923C';
-  if (days <= 7)  return '#4ADE80';
-  if (days <= 14) return COLORS.textDim;
-  return '#3a3a3a';
+  if (days < 4)   return COLORS.orange;
+  if (days <= 7)  return COLORS.green;
+  if (days <= 14) return COLORS.textMuted;
+  return COLORS.textFaint;
 };
 const dayColor = (consumed, target) => {
   if (!consumed || !target) return COLORS.border;
   const r = consumed / target;
-  if (r >= 0.85 && r <= 1.15) return '#4ADE80';
+  if (r >= 0.85 && r <= 1.15) return COLORS.green;
   if (r >= 0.70 && r <= 1.30) return COLORS.gold;
   return COLORS.red;
 };
@@ -176,7 +168,7 @@ const dayColor = (consumed, target) => {
 // ── Shared sub-components ──────────────────────────────────────────────────────
 function StatBox({ label, value, sub }) {
   return (
-    <View style={sb.box}>
+    <View style={sb.box} accessible accessibilityLabel={`${label.toLowerCase()}: ${value}${sub ? `, ${sub}` : ''}`}>
       <Text style={sb.value}>{value}</Text>
       {sub ? <Text style={sb.sub}>{sub}</Text> : null}
       <Text style={sb.label}>{label}</Text>
@@ -185,26 +177,25 @@ function StatBox({ label, value, sub }) {
 }
 const sb = StyleSheet.create({
   box:   { flex: 1, alignItems: 'center' },
-  value: { color: COLORS.white, fontSize: 20, fontWeight: FONT.black, letterSpacing: -0.5 },
-  sub:   { color: COLORS.textDim, fontSize: 10, marginTop: 1 },
-  label: { color: COLORS.textDim, fontSize: 9, letterSpacing: 1.5, marginTop: 3 },
+  value: { color: COLORS.white, fontSize: 20, fontWeight: FONT.black, letterSpacing: -0.5, fontVariant: ['tabular-nums'] },
+  sub:   { color: COLORS.textDim, fontSize: 11, marginTop: 1 },
+  label: { ...TYPE.overline, fontSize: 11, letterSpacing: 1, color: COLORS.textMuted, marginTop: 3, textAlign: 'center' },
 });
 
 function TipBox({ text }) {
   if (!text) return null;
   return (
     <View style={tp.wrap}>
-      <Feather name="arrow-up-circle" size={12} color={COLORS.gold} style={{ marginTop: 2 }} />
+      <Feather name="message-circle" size={14} color={COLORS.gold} style={{ marginTop: 2 }} />
       <Text style={tp.text}>{text}</Text>
     </View>
   );
 }
 const tp = StyleSheet.create({
-  wrap: { flexDirection: 'row', alignItems: 'flex-start', gap: 8,
-          backgroundColor: COLORS.goldFaint, borderRadius: RADIUS.sm,
-          borderWidth: 1, borderColor: COLORS.goldBorder,
-          paddingHorizontal: 12, paddingVertical: 10, marginTop: 16 },
-  text: { flex: 1, color: '#ddd', fontSize: 12, lineHeight: 18 },
+  wrap: { flexDirection: 'row', alignItems: 'flex-start', gap: 10,
+          backgroundColor: COLORS.surfaceDark, borderRadius: RADIUS.md,
+          paddingHorizontal: 12, paddingVertical: 12, marginTop: 16 },
+  text: { ...TYPE.callout, flex: 1, color: COLORS.textSecondary },
 });
 
 // ── Accordion pillar card ──────────────────────────────────────────────────────
@@ -215,10 +206,13 @@ function PillarAccordion({ icon, label, color, score, children }) {
   return (
     <View style={ac.card}>
       {/* Tappable header row */}
-      <TouchableOpacity
-        style={ac.header}
+      <Pressable
+        style={({ pressed }) => [ac.header, pressed && { backgroundColor: COLORS.surfaceRaised }]}
         onPress={() => setOpen(o => !o)}
-        activeOpacity={0.75}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={`${label.toLowerCase()} score, ${score !== null ? `${score} out of 100` : 'no data yet'}`}
+        accessibilityHint={open ? 'Collapses the breakdown' : 'Shows the breakdown'}
       >
         {/* Icon box */}
         <View style={[ac.iconBox, { backgroundColor: color + '20' }]}>
@@ -244,7 +238,7 @@ function PillarAccordion({ icon, label, color, score, children }) {
           color={COLORS.textDim}
           style={{ marginLeft: 10 }}
         />
-      </TouchableOpacity>
+      </Pressable>
 
       {/* Expanded content */}
       {open && (
@@ -257,17 +251,17 @@ function PillarAccordion({ icon, label, color, score, children }) {
   );
 }
 const ac = StyleSheet.create({
-  card:     { backgroundColor: COLORS.surface, borderRadius: RADIUS.lg,
+  card:     { backgroundColor: COLORS.surface, borderRadius: RADIUS.xl,
               borderWidth: 1, borderColor: COLORS.border, marginBottom: 10, overflow: 'hidden' },
   header:   { flexDirection: 'row', alignItems: 'center',
               paddingHorizontal: 16, paddingVertical: 16 },
   iconBox:  { width: 32, height: 32, borderRadius: RADIUS.sm,
               alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  label:    { flex: 1, color: COLORS.white, fontSize: 12, fontWeight: FONT.bold, letterSpacing: 2 },
-  badge:    { borderRadius: RADIUS.sm, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 4 },
-  badgeText:{ fontSize: 14, fontWeight: FONT.black },
-  badgeSub: { fontSize: 10, fontWeight: FONT.medium },
-  noData:   { color: COLORS.textDim, fontSize: 10, letterSpacing: 2 },
+  label:    { flex: 1, color: COLORS.white, fontSize: 13, fontWeight: FONT.bold, letterSpacing: 1.5 },
+  badge:    { borderRadius: RADIUS.pill, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 4 },
+  badgeText:{ fontSize: 14, fontWeight: FONT.black, fontVariant: ['tabular-nums'] },
+  badgeSub: { fontSize: 11, fontWeight: FONT.medium },
+  noData:   { ...TYPE.overline, color: COLORS.textDim },
   divider:  { height: 1, backgroundColor: COLORS.border, marginBottom: 16 },
   body:     { paddingHorizontal: 16, paddingBottom: 16 },
 });
@@ -311,9 +305,9 @@ function RestContent({ rangeWkts }) {
       <View style={ct.legend}>
         {[
           { color: COLORS.red,     label: '< 3d'  },
-          { color: '#FB923C',      label: '3–4d'  },
-          { color: '#4ADE80',      label: '4–7d ✓' },
-          { color: COLORS.textDim, label: '7–14d' },
+          { color: COLORS.orange,    label: '3–4d'  },
+          { color: COLORS.green,     label: '4–7d ✓' },
+          { color: COLORS.textMuted, label: '7–14d' },
         ].map(item => (
           <View key={item.label} style={ct.legendItem}>
             <View style={[ct.legendDot, { backgroundColor: item.color }]} />
@@ -328,53 +322,47 @@ function RestContent({ rangeWkts }) {
 }
 
 // ── ROUTINE content ────────────────────────────────────────────────────────────
-function RoutineContent({ rangeWkts, allSets, userRoutine }) {
-  const tip = getRoutineTip(rangeWkts, allSets, userRoutine);
+function RoutineContent({ rangeWkts, allSets, sessions }) {
+  const tip = getRoutineTip(rangeWkts, allSets, sessions);
 
-  if (!rangeWkts.length || !userRoutine.length) {
+  if (!rangeWkts.length || !sessions.length) {
     return (
       <Text style={ct.emptyNote}>
-        {!userRoutine.length
-          ? 'Set up your routine in your profile to start tracking.'
+        {!sessions.length
+          ? 'Set up your programme to start tracking your routine.'
           : 'Log a session in this period to see your routine breakdown.'}
       </Text>
     );
   }
 
-  const totalSessions   = rangeWkts.length;
-  const perfectSessions = rangeWkts.filter(w => {
-    const unique = new Set(allSets.filter(s => s.workout_id === w.id).map(s => s.exercise_name)).size;
-    return unique >= userRoutine.length;
-  }).length;
+  const rows            = workoutAdherence(rangeWkts, allSets, sessions);
+  const totalSessions   = rows.length;
+  const perfectSessions = rows.filter(r => r.completion >= 1).length;
+  const avgPct = Math.round((rows.reduce((a, r) => a + r.completion, 0) / totalSessions) * 100);
 
-  const completions = rangeWkts.map(w => {
-    const unique = new Set(allSets.filter(s => s.workout_id === w.id).map(s => s.exercise_name)).size;
-    return unique / userRoutine.length;
-  });
-  const avgPct = Math.round((completions.reduce((a, b) => a + b, 0) / completions.length) * 100);
-
-  const exerciseStats = userRoutine.map(ex => {
-    const hitCount = rangeWkts.filter(w =>
-      allSets.some(s => s.workout_id === w.id && s.exercise_name === ex)
-    ).length;
-    return { name: ex, hit: hitCount, total: totalSessions, pct: hitCount / totalSessions };
-  }).sort((a, b) => a.pct - b.pct);
+  // Per exercise: how often it was done in the sessions that programmed it
+  const programmed = [...new Map(sessions.flatMap(ss => ss.exercises).map(e => [e.name, e])).values()];
+  const exerciseStats = programmed.map(ex => {
+    const relevant = rows.filter(r => r.session.exercises.some(e => e.name === ex.name));
+    const hit = relevant.filter(r => r.done.has(ex.name)).length;
+    return { name: ex.name, hit, total: relevant.length, pct: relevant.length ? hit / relevant.length : 0 };
+  }).filter(ex => ex.total > 0).sort((a, b) => a.pct - b.pct);
 
   return (
     <>
       <View style={ct.statsRow}>
         <StatBox label="AVG COMPLETION" value={`${avgPct}%`} />
         <View style={ct.statDiv} />
-        <StatBox label="PERFECT"  value={`${perfectSessions}/${totalSessions}`} sub="sessions" />
+        <StatBox label="COMPLETE"  value={`${perfectSessions}/${totalSessions}`} sub="sessions" />
         <View style={ct.statDiv} />
-        <StatBox label="EXERCISES" value={`${userRoutine.length}`} sub="in routine" />
+        <StatBox label="EXERCISES" value={`${programmed.length}`} sub={sessions.length > 1 ? `across ${sessions.length} workouts` : 'in routine'} />
       </View>
 
       <Text style={ct.sectionLabel}>EXERCISE BREAKDOWN</Text>
       {exerciseStats.map(ex => {
-        const barColor = ex.pct >= 0.8 ? '#4ADE80' : ex.pct >= 0.5 ? COLORS.gold : COLORS.red;
+        const barColor = ex.pct >= 0.8 ? COLORS.green : ex.pct >= 0.5 ? COLORS.gold : COLORS.red;
         return (
-          <View key={ex.name} style={ct.exRow}>
+          <View key={ex.name} style={ct.exRow} accessible accessibilityLabel={`${ex.name}: done in ${ex.hit} of ${ex.total} sessions`}>
             <Text style={ct.exName} numberOfLines={1}>{ex.name}</Text>
             <View style={ct.exTrack}>
               <View style={[ct.exFill, { width: `${ex.pct * 100}%`, backgroundColor: barColor }]} />
@@ -439,7 +427,7 @@ function NutritionContent({ rangeLogs, calTarget, rangeDays, goal }) {
 
       <View style={ct.legend}>
         {[
-          { color: '#4ADE80',      label: 'On target'  },
+          { color: COLORS.green,   label: 'On target'  },
           { color: COLORS.gold,    label: 'Close'       },
           { color: COLORS.red,     label: 'Off'         },
           { color: COLORS.border,  label: 'Not logged'  },
@@ -495,12 +483,12 @@ export default function HDScoreDetailScreen({ navigation }) {
   const cutoffDate = toLocalISO(new Date(cutoffMs));
   const rangeWkts  = allWorkouts.filter(w => wTs(w) >= cutoffMs);
   const rangeLogs  = calLogs.filter(l => l.date >= cutoffDate);
-  const userRoutine = profile?.routine || [];
+  const sessions    = getSessions(profile);
   const calTarget   = calcCalories(profile);
 
   const scores = {
     rest:      calcRestScore(rangeWkts),
-    routine:   calcRoutineScore(rangeWkts, allSets, userRoutine),
+    routine:   calcRoutineScore(rangeWkts, allSets, sessions),
     nutrition: calcNutritionScore(rangeLogs, calTarget, rangeDays),
   };
   const vals     = Object.values(scores).filter(v => v !== null);
@@ -510,17 +498,11 @@ export default function HDScoreDetailScreen({ navigation }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.background }}>
-      {/* Header */}
-      <View style={[s.header, { paddingTop: 44 + insets.top }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}>
-          <Text style={s.backText}>← BACK</Text>
-        </TouchableOpacity>
-        <Text style={s.title}>HD SCORE</Text>
-      </View>
+      <ScreenHeader title="Heavy Duty Score" subtitle="ROUTINE · REST · NUTRITION" onBack={() => navigation.goBack()} />
 
       {loading ? (
         <View style={s.loader}>
-          <ActivityIndicator color={COLORS.gold} />
+          <ActivityIndicator color={COLORS.gold} accessibilityLabel="Loading score" />
         </View>
       ) : (
         <ScrollView
@@ -528,26 +510,29 @@ export default function HDScoreDetailScreen({ navigation }) {
           showsVerticalScrollIndicator={false}
         >
           {/* Range chips */}
-          <View style={s.chips}>
+          <View style={s.chips} accessibilityRole="tablist">
             {RANGE_OPTIONS.map(opt => {
               const active = rangeDays === opt.days;
               return (
-                <TouchableOpacity
+                <Pressable
                   key={opt.days}
                   style={[s.chip, active && s.chipActive]}
                   onPress={() => setRangeDays(opt.days)}
-                  activeOpacity={0.7}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: active }}
+                  accessibilityLabel={`Last ${opt.label}`}
+                  hitSlop={6}
                 >
                   <Text style={[s.chipText, active && s.chipTextActive]}>{opt.label}</Text>
-                </TouchableOpacity>
+                </Pressable>
               );
             })}
           </View>
 
           {/* Overall score */}
-          <View style={s.overallRow}>
+          <View style={s.overallRow} accessible accessibilityLabel={overall !== null ? `Overall score ${overall} out of 100, ${label}` : 'No score yet'}>
             <Text style={[s.overallNum, { color: numColor }]}>
-              {overall ?? '—'}<Text style={[s.overallSub, { color: numColor }]}>/100</Text>
+              {overall ?? '—'}<Text style={s.overallSub}>/100</Text>
             </Text>
             {label && (
               <View style={[s.labelBadge, { borderColor: numColor + '55', backgroundColor: numColor + '18' }]}>
@@ -556,18 +541,18 @@ export default function HDScoreDetailScreen({ navigation }) {
             )}
           </View>
 
-          <Text style={s.tapHint}>TAP A PILLAR TO EXPAND</Text>
+          <Text style={s.tapHint}>Tap a pillar to see the breakdown.</Text>
 
           {/* Accordion pillars */}
-          <PillarAccordion icon="clock" label="REST" color="#60A5FA" score={scores.rest}>
+          <PillarAccordion icon="clock" label="REST" color={COLORS.blue} score={scores.rest}>
             <RestContent rangeWkts={rangeWkts} />
           </PillarAccordion>
 
-          <PillarAccordion icon="check-circle" label="ROUTINE" color="#A78BFA" score={scores.routine}>
-            <RoutineContent rangeWkts={rangeWkts} allSets={allSets} userRoutine={userRoutine} />
+          <PillarAccordion icon="check-circle" label="ROUTINE" color={COLORS.violet} score={scores.routine}>
+            <RoutineContent rangeWkts={rangeWkts} allSets={allSets} sessions={sessions} />
           </PillarAccordion>
 
-          <PillarAccordion icon="target" label="NUTRITION" color="#34D399" score={scores.nutrition}>
+          <PillarAccordion icon="target" label="NUTRITION" color={COLORS.teal} score={scores.nutrition}>
             <NutritionContent
               rangeLogs={rangeLogs}
               calTarget={calTarget}
@@ -583,25 +568,25 @@ export default function HDScoreDetailScreen({ navigation }) {
 
 // ── Shared content styles ──────────────────────────────────────────────────────
 const ct = StyleSheet.create({
-  emptyNote:    { color: COLORS.textDim, fontSize: 12, lineHeight: 18 },
+  emptyNote:    { ...TYPE.callout, color: COLORS.textMuted },
   statsRow:     { flexDirection: 'row', marginBottom: 20 },
   statDiv:      { width: 1, backgroundColor: COLORS.border, marginHorizontal: 4 },
-  sectionLabel: { color: COLORS.textDim, fontSize: 9, letterSpacing: 2, marginBottom: 10 },
+  sectionLabel: { ...TYPE.overline, color: COLORS.textDim, marginBottom: 10 },
 
   gapRow:  { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 },
   gapPill: { borderRadius: RADIUS.sm, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 5 },
-  gapText: { fontSize: 11, fontWeight: FONT.bold },
+  gapText: { fontSize: 12, fontWeight: FONT.bold },
 
-  legend:     { flexDirection: 'row', gap: 14, marginTop: 4 },
+  legend:     { flexDirection: 'row', flexWrap: 'wrap', gap: 14, marginTop: 4 },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  legendDot:  { width: 7, height: 7, borderRadius: 4 },
-  legendText: { color: COLORS.textDim, fontSize: 9 },
+  legendDot:  { width: 8, height: 8, borderRadius: 4 },
+  legendText: { color: COLORS.textMuted, fontSize: 11 },
 
   exRow:   { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  exName:  { color: '#ccc', fontSize: 11, width: 130, flexShrink: 0 },
-  exTrack: { flex: 1, height: 3, backgroundColor: COLORS.border, borderRadius: 2, marginHorizontal: 8 },
-  exFill:  { height: 3, borderRadius: 2 },
-  exCount: { fontSize: 11, fontWeight: FONT.bold, width: 30, textAlign: 'right' },
+  exName:  { color: COLORS.textSecondary, fontSize: 13, width: 130, flexShrink: 0 },
+  exTrack: { flex: 1, height: 4, backgroundColor: COLORS.border, borderRadius: 2, marginHorizontal: 8 },
+  exFill:  { height: 4, borderRadius: 2 },
+  exCount: { fontSize: 12, fontWeight: FONT.bold, width: 34, textAlign: 'right', fontVariant: ['tabular-nums'] },
 
   dayGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 10 },
   dayDot:  { width: 18, height: 18, borderRadius: 3 },
@@ -609,25 +594,21 @@ const ct = StyleSheet.create({
 
 // ── Screen styles ──────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  header:       { paddingHorizontal: SPACING.screen, paddingBottom: 16 },
-  backBtn:      { marginBottom: 12 },
-  backText:     { color: COLORS.textDim, fontSize: 11, letterSpacing: 2 },
-  title:        { fontSize: 28, fontWeight: FONT.black, color: COLORS.white, letterSpacing: 5 },
   loader:       { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content:      { paddingHorizontal: SPACING.screen },
 
   chips:        { flexDirection: 'row', gap: 6, marginBottom: 20 },
-  chip:         { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20,
-                  borderWidth: 1, borderColor: COLORS.border },
-  chipActive:   { borderColor: COLORS.gold, backgroundColor: COLORS.goldFaint },
-  chipText:     { color: COLORS.textDim, fontSize: 9, fontWeight: FONT.bold, letterSpacing: 1 },
+  chip:         { minWidth: 44, height: 32, paddingHorizontal: 10, borderRadius: RADIUS.pill,
+                  borderWidth: 1, borderColor: COLORS.border, alignItems: 'center', justifyContent: 'center' },
+  chipActive:   { borderColor: COLORS.goldBorder, backgroundColor: COLORS.goldFaint },
+  chipText:     { color: COLORS.textDim, fontSize: 12, fontWeight: FONT.bold },
   chipTextActive: { color: COLORS.gold },
 
   overallRow:   { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 6 },
-  overallNum:   { fontSize: 52, fontWeight: FONT.black, letterSpacing: -2 },
-  overallSub:   { fontSize: 22, fontWeight: FONT.semibold, letterSpacing: -1 },
-  labelBadge:   { borderRadius: RADIUS.sm, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 4 },
-  labelText:    { fontSize: 10, fontWeight: FONT.black, letterSpacing: 2 },
+  overallNum:   { fontSize: 56, fontWeight: FONT.black, letterSpacing: -2, fontVariant: ['tabular-nums'] },
+  overallSub:   { fontSize: 20, fontWeight: FONT.semibold, letterSpacing: 0, color: COLORS.textDim },
+  labelBadge:   { borderRadius: RADIUS.pill, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 4 },
+  labelText:    { fontSize: 11, fontWeight: FONT.black, letterSpacing: 1.5 },
 
-  tapHint:      { color: COLORS.textDim, fontSize: 9, letterSpacing: 2, marginBottom: 16 },
+  tapHint:      { ...TYPE.callout, color: COLORS.textDim, marginBottom: 16 },
 });

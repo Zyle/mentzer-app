@@ -1,63 +1,83 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
-  TouchableOpacity, Alert, TextInput,
+  Pressable, Alert, TextInput, KeyboardAvoidingView, Platform,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { Feather } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import Card from '../components/Card';
+import Button from '../components/Button';
 import ScreenHeader from '../components/ScreenHeader';
+import SectionTitle from '../components/SectionTitle';
 import CalorieSlider from '../components/CalorieSlider';
-import { COLORS, FONT, RADIUS, SPACING } from '../theme';
+import { COLORS, FONT, TYPE, RADIUS, SPACING, HIT } from '../theme';
 
 export default function ProfileScreen({ navigation }) {
   const [profile, setProfile] = useState(null);
   const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [bodyweight, setBodyweight] = useState('');
   const [height, setHeight] = useState('');
   const [age, setAge] = useState('');
   const [name, setName] = useState('');
   const [calorieAdjustment, setCalorieAdjustment] = useState(0);
+  const [scrollEnabled, setScrollEnabled] = useState(true);
 
-  useEffect(() => { loadData(); }, []);
+  // Reload on focus so changes made in Settings (e.g. goal) show immediately
+  useFocusEffect(useCallback(() => { if (!editing) loadData(); }, [editing]));
 
   const loadData = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-    if (data) {
-      setProfile(data);
-      setBodyweight(data.bodyweight_kg?.toString() || '');
-      setHeight(data.height_cm?.toString() || '');
-      setAge(data.age?.toString() || '');
-      setName(data.name || '');
-      setCalorieAdjustment(Math.abs(data.calorie_adjustment || 0));
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+      if (data) {
+        setProfile(data);
+        setBodyweight(data.bodyweight_kg?.toString() || '');
+        setHeight(data.height_cm?.toString() || '');
+        setAge(data.age?.toString() || '');
+        setName(data.name || '');
+        setCalorieAdjustment(Math.abs(data.calorie_adjustment || 0));
+      }
+    } catch (e) {
+      console.error('ProfileScreen loadData error:', e);
     }
   };
 
   const saveProfile = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    const signedAdjustment = profile?.goal === 'bulk'
-      ? calorieAdjustment
-      : profile?.goal === 'cut'
-        ? -calorieAdjustment
-        : 0;
+    setSaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const signedAdjustment = profile?.goal === 'bulk'
+        ? calorieAdjustment
+        : profile?.goal === 'cut'
+          ? -calorieAdjustment
+          : 0;
 
-    await supabase.from('profiles').upsert({
-      id: user.id,
-      name,
-      bodyweight_kg: parseFloat(bodyweight) || null,
-      height_cm: parseFloat(height) || null,
-      age: parseInt(age) || null,
-      calorie_adjustment: signedAdjustment,
-      last_weight_checkin: new Date().toISOString(),
-    });
-    setEditing(false);
-    loadData();
+      const { error } = await supabase.from('profiles').upsert({
+        id: user.id,
+        name,
+        bodyweight_kg: parseFloat(bodyweight) || null,
+        height_cm: parseFloat(height) || null,
+        age: parseInt(age) || null,
+        calorie_adjustment: signedAdjustment,
+        last_weight_checkin: new Date().toISOString(),
+      });
+      if (error) throw error;
+      setEditing(false);
+      loadData();
+    } catch (e) {
+      Alert.alert('Could not save', e.message || 'Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const signOut = () => {
-    Alert.alert('Sign Out', 'Are you sure?', [
+    Alert.alert('Sign out', 'Are you sure?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign Out', style: 'destructive', onPress: () => supabase.auth.signOut() },
+      { text: 'Sign out', style: 'destructive', onPress: () => supabase.auth.signOut() },
     ]);
   };
 
@@ -82,308 +102,286 @@ export default function ProfileScreen({ navigation }) {
   const proteinTarget = profile?.bodyweight_kg ? Math.round(profile.bodyweight_kg * 0.8) : null;
 
   const getGoalLabel = () => {
-    if (profile?.goal === 'bulk') return 'MUSCLE GAIN';
-    if (profile?.goal === 'cut') return 'FAT LOSS';
+    if (profile?.goal === 'bulk') return 'BUILDING';
+    if (profile?.goal === 'cut') return 'CUTTING';
+    if (profile?.goal === 'recomp') return 'RECOMP';
     return 'MAINTAIN';
   };
 
   const getExperienceLabel = () => {
-    const map = { beginner: 'BEGINNER', intermediate: 'INTERMEDIATE', advanced: 'ADVANCED' };
+    const map = { beginner: 'Beginner', intermediate: 'Intermediate', advanced: 'Advanced' };
     return map[profile?.experience_level] || '—';
   };
 
+  const initial = (profile?.name || 'A').trim().charAt(0).toUpperCase();
+
   return (
-    <ScrollView style={styles.container}>
-      <ScreenHeader title="PROFILE" subtitle="YOUR METRICS" bordered
-        right={
-          <TouchableOpacity onPress={() => navigation.navigate('Settings')} activeOpacity={0.7}>
-            <Text style={styles.settingsIcon}>⚙</Text>
-          </TouchableOpacity>
-        }
-      />
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: 40 }}
+        keyboardShouldPersistTaps="handled"
+        scrollEnabled={scrollEnabled}
+      >
+        <ScreenHeader
+          title="Profile"
+          subtitle="YOU & YOUR TARGETS"
+          right={
+            <Pressable
+              onPress={() => navigation.navigate('Settings')}
+              style={({ pressed }) => [styles.iconBtn, pressed && { backgroundColor: COLORS.surfaceRaised }]}
+              accessibilityRole="button"
+              accessibilityLabel="Settings"
+            >
+              <Feather name="settings" size={20} color={COLORS.textSecondary} />
+            </Pressable>
+          }
+        />
 
-      {/* Profile Card */}
-      <Card style={styles.cardSpacing}>
-        {editing ? (
-          <>
-            <Text style={styles.label}>NAME</Text>
-            <TextInput
-              style={styles.input}
-              value={name}
-              onChangeText={setName}
-              placeholder="Your name"
-              placeholderTextColor={COLORS.textFaint}
-            />
-            <Text style={styles.label}>BODYWEIGHT (KG)</Text>
-            <TextInput
-              style={styles.input}
-              value={bodyweight}
-              onChangeText={setBodyweight}
-              keyboardType="decimal-pad"
-              placeholder="80"
-              placeholderTextColor={COLORS.textFaint}
-            />
-            <Text style={styles.label}>HEIGHT (CM)</Text>
-            <TextInput
-              style={styles.input}
-              value={height}
-              onChangeText={setHeight}
-              keyboardType="decimal-pad"
-              placeholder="175"
-              placeholderTextColor={COLORS.textFaint}
-            />
-            <Text style={styles.label}>AGE</Text>
-            <TextInput
-              style={styles.input}
-              value={age}
-              onChangeText={setAge}
-              keyboardType="number-pad"
-              placeholder="30"
-              placeholderTextColor={COLORS.textFaint}
-            />
-            {profile?.goal !== 'maintain' && profile?.goal && (
-              <>
-                <Text style={styles.label}>
-                  {profile.goal === 'bulk' ? 'DAILY SURPLUS (CAL)' : 'DAILY DEFICIT (CAL)'}
-                </Text>
-                <CalorieSlider
-                  value={calorieAdjustment}
-                  min={profile.goal === 'bulk' ? 50 : 100}
-                  max={profile.goal === 'bulk' ? 300 : 500}
-                  step={50}
-                  onChange={setCalorieAdjustment}
-                  color={profile.goal === 'bulk' ? COLORS.gold : COLORS.red}
-                />
-                {profile.goal === 'cut' && (
-                  <View style={styles.predictionCard}>
-                    <View style={styles.predictionRow}>
-                      <View style={styles.predictionStat}>
-                        <Text style={styles.predictionValue}>
-                          ~{((calorieAdjustment * 7) / 7700).toFixed(2)}kg
-                        </Text>
-                        <Text style={styles.predictionLabel}>PER WEEK</Text>
-                      </View>
-                      <View style={styles.predictionDivider} />
-                      <View style={styles.predictionStat}>
-                        <Text style={styles.predictionValue}>
-                          ~{((calorieAdjustment * 30) / 7700).toFixed(1)}kg
-                        </Text>
-                        <Text style={styles.predictionLabel}>PER MONTH</Text>
-                      </View>
-                    </View>
-                    {calorieAdjustment >= 400 && (
-                      <Text style={styles.predictionWarning}>
-                        ⚠️  Deficits above 400 cal/day risk muscle loss. Keep training intensity high.
-                      </Text>
-                    )}
-                  </View>
-                )}
-              </>
-            )}
-
-            <TouchableOpacity style={styles.saveButton} onPress={saveProfile}>
-              <Text style={styles.saveButtonText}>SAVE CHANGES</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.cancelButton} onPress={() => setEditing(false)}>
-              <Text style={styles.cancelButtonText}>CANCEL</Text>
-            </TouchableOpacity>
-          </>
-        ) : (
-          <>
-            <View style={styles.profileRow}>
-              <View>
-                <Text style={styles.profileName}>{profile?.name || 'Athlete'}</Text>
-                <Text style={styles.profileEmail}>{profile?.email}</Text>
-              </View>
-              <TouchableOpacity style={styles.editBtn} onPress={() => setEditing(true)}>
-                <Text style={styles.editBtnText}>EDIT</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.profileStats}>
-              {profile?.bodyweight_kg && (
-                <View style={styles.profileStat}>
-                  <Text style={styles.profileStatValue}>{profile.bodyweight_kg}kg</Text>
-                  <Text style={styles.profileStatLabel}>WEIGHT</Text>
-                </View>
-              )}
-              {profile?.height_cm && (
-                <View style={styles.profileStat}>
-                  <Text style={styles.profileStatValue}>{profile.height_cm}cm</Text>
-                  <Text style={styles.profileStatLabel}>HEIGHT</Text>
-                </View>
-              )}
-              {profile?.age && (
-                <View style={styles.profileStat}>
-                  <Text style={styles.profileStatValue}>{profile.age}</Text>
-                  <Text style={styles.profileStatLabel}>AGE</Text>
-                </View>
-              )}
-              <View style={styles.profileStat}>
-                <Text style={styles.profileStatValue}>{getExperienceLabel()}</Text>
-                <Text style={styles.profileStatLabel}>LEVEL</Text>
-              </View>
-            </View>
-          </>
-        )}
-      </Card>
-
-      {/* Nutrition Targets */}
-      {calorieTarget && (
+        {/* Profile card */}
         <Card style={styles.cardSpacing}>
-          <View style={styles.cardHeaderRow}>
-            <Text style={styles.cardTitle}>NUTRITION TARGETS</Text>
-            <View style={styles.goalBadge}>
-              <Text style={styles.goalBadgeText}>{getGoalLabel()}</Text>
-            </View>
-          </View>
+          {editing ? (
+            <>
+              <Text style={styles.editTitle} accessibilityRole="header">Edit profile</Text>
+              <LabeledInput label="Name" value={name} onChangeText={setName} placeholder="Your name" autoComplete="name" />
+              <View style={styles.inputRow}>
+                <LabeledInput label="Weight" unit="kg" value={bodyweight} onChangeText={setBodyweight} keyboardType="decimal-pad" placeholder="80" style={{ flex: 1 }} />
+                <LabeledInput label="Height" unit="cm" value={height} onChangeText={setHeight} keyboardType="decimal-pad" placeholder="175" style={{ flex: 1 }} />
+                <LabeledInput label="Age" value={age} onChangeText={setAge} keyboardType="number-pad" placeholder="30" style={{ flex: 0.8 }} />
+              </View>
 
-          <View style={styles.metricRow}>
-            <View style={styles.metricBox}>
-              <Text style={styles.metricValue}>{calorieTarget}</Text>
-              <Text style={styles.metricLabel}>DAILY CALORIES</Text>
-            </View>
-            <View style={styles.metricBox}>
-              <Text style={styles.metricValue}>{tdee}</Text>
-              <Text style={styles.metricLabel}>MAINTENANCE</Text>
-            </View>
-          </View>
+              {profile?.goal !== 'maintain' && profile?.goal !== 'recomp' && profile?.goal && (
+                <>
+                  <Text style={styles.label}>
+                    {profile.goal === 'bulk' ? 'Daily surplus' : 'Daily deficit'}
+                  </Text>
+                  <CalorieSlider
+                    value={calorieAdjustment}
+                    min={profile.goal === 'bulk' ? 50 : 100}
+                    max={profile.goal === 'bulk' ? 300 : 500}
+                    step={50}
+                    onChange={setCalorieAdjustment}
+                    onDragStart={() => setScrollEnabled(false)}
+                    onDragEnd={() => setScrollEnabled(true)}
+                    color={profile.goal === 'bulk' ? COLORS.gold : COLORS.red}
+                    accessibilityLabel={profile.goal === 'bulk' ? 'Daily calorie surplus' : 'Daily calorie deficit'}
+                  />
+                  {profile.goal === 'cut' && (
+                    <View style={styles.predictionCard}>
+                      <View style={styles.predictionRow}>
+                        <View style={styles.predictionStat}>
+                          <Text style={styles.predictionValue}>
+                            ~{((calorieAdjustment * 7) / 7700).toFixed(2)}kg
+                          </Text>
+                          <Text style={styles.predictionLabel}>PER WEEK</Text>
+                        </View>
+                        <View style={styles.predictionDivider} />
+                        <View style={styles.predictionStat}>
+                          <Text style={styles.predictionValue}>
+                            ~{((calorieAdjustment * 30) / 7700).toFixed(1)}kg
+                          </Text>
+                          <Text style={styles.predictionLabel}>PER MONTH</Text>
+                        </View>
+                      </View>
+                      {calorieAdjustment >= 400 && (
+                        <Text style={styles.predictionWarning}>
+                          Deficits above 400 kcal/day risk muscle loss. Keep training intensity high.
+                        </Text>
+                      )}
+                    </View>
+                  )}
+                </>
+              )}
 
-          <View style={styles.macroRow}>
-            <View style={styles.macroBox}>
-              <Text style={styles.macroValue}>{Math.round(calorieTarget * 0.6 / 4)}g</Text>
-              <Text style={styles.macroLabel}>CARBS</Text>
-              <Text style={styles.macroPct}>60%</Text>
-            </View>
-            <View style={styles.macroBox}>
-              <Text style={styles.macroValue}>{proteinTarget}g</Text>
-              <Text style={styles.macroLabel}>PROTEIN</Text>
-              <Text style={styles.macroPct}>25%</Text>
-            </View>
-            <View style={styles.macroBox}>
-              <Text style={styles.macroValue}>{Math.round(calorieTarget * 0.15 / 9)}g</Text>
-              <Text style={styles.macroLabel}>FAT</Text>
-              <Text style={styles.macroPct}>15%</Text>
-            </View>
-          </View>
+              <Button title="SAVE CHANGES" onPress={saveProfile} loading={saving} style={{ marginTop: SPACING.lg }} />
+              <Button title="Cancel" variant="ghost" size="md" onPress={() => { setEditing(false); loadData(); }} style={{ marginTop: SPACING.sm }} />
+            </>
+          ) : (
+            <>
+              <View style={styles.profileRow}>
+                <View style={styles.avatar} accessibilityElementsHidden importantForAccessibility="no">
+                  <Text style={styles.avatarText}>{initial}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.profileName} numberOfLines={1}>{profile?.name || 'Athlete'}</Text>
+                  {profile?.email ? <Text style={styles.profileEmail} numberOfLines={1}>{profile.email}</Text> : null}
+                </View>
+                <Button title="Edit" variant="secondary" size="md" icon="edit-2" onPress={() => setEditing(true)} hint="Edit your name, body stats and calorie adjustment" />
+              </View>
 
-          {profile?.goal === 'bulk' && (
-            <View style={styles.mentzerNote}>
-              <Text style={styles.mentzerNoteText}>
-                "You only need 16 extra calories per day above maintenance to build 10lbs of muscle in a year. Anything more is stored as fat." — Mentzer
-              </Text>
-            </View>
+              <View style={styles.profileStats}>
+                <Stat value={profile?.bodyweight_kg ? `${profile.bodyweight_kg}` : '—'} unit="kg" label="Weight" />
+                <Stat value={profile?.height_cm ? `${profile.height_cm}` : '—'} unit="cm" label="Height" />
+                <Stat value={profile?.age ? `${profile.age}` : '—'} label="Age" />
+                <Stat value={getExperienceLabel()} label="Level" small />
+              </View>
+            </>
           )}
         </Card>
-      )}
 
-      {/* HD2 Protocol */}
-      <Card style={styles.cardSpacing}>
-        <Text style={styles.cardTitle}>HD2 PROTOCOL</Text>
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>FREQUENCY</Text>
-          <Text style={styles.infoValue}>
-            {profile?.experience_level === 'advanced' ? 'Every 5-7 days' : 'Every 4-6 days'}
-          </Text>
-        </View>
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>SETS PER EXERCISE</Text>
-          <Text style={styles.infoValue}>1 set to absolute failure</Text>
-        </View>
-        <View style={[styles.infoRow, { borderBottomWidth: 0 }]}>
-          <Text style={styles.infoLabel}>CORE EXERCISES</Text>
-          <Text style={styles.infoValue}>Squats · Dips · Deadlifts</Text>
-        </View>
-      </Card>
+        {/* Nutrition targets */}
+        {calorieTarget && (
+          <>
+            <SectionTitle
+              title="NUTRITION TARGETS"
+              right={<View style={styles.goalBadge}><Text style={styles.goalBadgeText}>{getGoalLabel()}</Text></View>}
+            />
+            <Card style={styles.cardSpacingTight}>
+              <View style={styles.metricRow}>
+                <View style={styles.metricBox} accessible accessibilityLabel={`Daily target ${calorieTarget} calories`}>
+                  <Text style={styles.metricValue}>{calorieTarget.toLocaleString()}</Text>
+                  <Text style={styles.metricLabel}>Daily target (kcal)</Text>
+                </View>
+                <View style={styles.metricBox} accessible accessibilityLabel={`Maintenance ${tdee} calories`}>
+                  <Text style={[styles.metricValue, { color: COLORS.white }]}>{tdee.toLocaleString()}</Text>
+                  <Text style={styles.metricLabel}>Maintenance (kcal)</Text>
+                </View>
+              </View>
 
-      {/* Sign Out */}
-      <TouchableOpacity style={styles.signOutButton} onPress={signOut}>
-        <Text style={styles.signOutText}>SIGN OUT</Text>
-      </TouchableOpacity>
+              <View style={styles.macroRow}>
+                <Macro value={Math.round(calorieTarget * 0.6 / 4)} label="Carbs" sub="60% kcal" />
+                <Macro value={proteinTarget} label="Protein" sub="0.8 g/kg" />
+                <Macro value={Math.round(calorieTarget * 0.15 / 9)} label="Fat" sub="15% kcal" />
+              </View>
 
-      <View style={{ height: 100 }} />
-    </ScrollView>
+              {profile?.goal === 'bulk' && (
+                <View style={styles.mentzerNote}>
+                  <Text style={styles.mentzerNoteLabel}>MENTZER'S MATH</Text>
+                  <Text style={styles.mentzerNoteText}>
+                    A pound of muscle holds about 600 calories. Gaining 10 lb of muscle in a year takes roughly 6,000 extra calories: about 16 a day above maintenance.
+                  </Text>
+                </View>
+              )}
+            </Card>
+          </>
+        )}
+
+        {/* Heavy Duty protocol */}
+        <SectionTitle title="HEAVY DUTY PROTOCOL" />
+        <Card style={[styles.cardSpacingTight, { paddingVertical: 4 }]}>
+          <InfoRow
+            icon="calendar"
+            label="Frequency"
+            value={profile?.experience_level === 'advanced' ? 'Every 5–7 days' : 'Every 4–6 days'}
+          />
+          <InfoRow icon="zap" label="Sets per exercise" value="1, to absolute failure" />
+          <InfoRow icon="repeat" label="Rep range" value="About 6–10" />
+          <InfoRow icon="clock" label="Between exercises" value="Only as long as needed" last />
+        </Card>
+
+        <Button title="SIGN OUT" variant="secondary" icon="log-out" onPress={signOut} style={styles.signOut} />
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
+// ─── Presentational helpers ──────────────────────────────────────────────────
+function LabeledInput({ label, unit, style, ...props }) {
+  return (
+    <View style={style}>
+      <Text style={styles.label}>{label}{unit ? ` (${unit})` : ''}</Text>
+      <TextInput
+        style={styles.input}
+        placeholderTextColor={COLORS.textFaint}
+        accessibilityLabel={unit ? `${label} in ${unit}` : label}
+        {...props}
+      />
+    </View>
+  );
+}
+
+function Stat({ value, unit, label, small }) {
+  return (
+    <View style={styles.profileStat} accessible accessibilityLabel={`${label} ${value}${unit ? ` ${unit}` : ''}`}>
+      <Text style={[styles.profileStatValue, small && { fontSize: 14 }]} numberOfLines={1} adjustsFontSizeToFit>
+        {value}{unit && value !== '—' ? <Text style={styles.profileStatUnit}>{unit}</Text> : null}
+      </Text>
+      <Text style={styles.profileStatLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function Macro({ value, label, sub }) {
+  return (
+    <View style={styles.macroBox} accessible accessibilityLabel={`${label} ${value} grams, ${sub}`}>
+      <Text style={styles.macroValue}>{value}<Text style={styles.macroUnit}>g</Text></Text>
+      <Text style={styles.macroLabel}>{label}</Text>
+      <Text style={styles.macroPct}>{sub}</Text>
+    </View>
+  );
+}
+
+function InfoRow({ icon, label, value, last }) {
+  return (
+    <View style={[styles.infoRow, !last && styles.infoRowBorder]} accessible accessibilityLabel={`${label}: ${value}`}>
+      <Feather name={icon} size={16} color={COLORS.gold} />
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={styles.infoValue}>{value}</Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container:  { flex: 1, backgroundColor: COLORS.background },
-  cardSpacing: { marginHorizontal: SPACING.screen, marginTop: SPACING.lg, marginBottom: 0 },
+  container:        { flex: 1, backgroundColor: COLORS.background },
+  cardSpacing:      { marginHorizontal: SPACING.screen },
+  cardSpacingTight: { marginHorizontal: SPACING.screen },
+  iconBtn:          { width: HIT, height: HIT, borderRadius: HIT / 2, alignItems: 'center', justifyContent: 'center',
+                      backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border },
 
   // Profile card
-  profileRow:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: SPACING.lg },
-  profileName:      { color: COLORS.white, fontSize: 22, fontWeight: FONT.bold },
-  profileEmail:     { color: COLORS.textDim, fontSize: 12, marginTop: 2 },
-  editBtn:          { backgroundColor: COLORS.border, borderRadius: RADIUS.md, paddingHorizontal: 14, paddingVertical: 8 },
-  editBtnText:      { color: COLORS.gold, fontSize: 11, fontWeight: FONT.bold, letterSpacing: 1 },
-  profileStats:     { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  profileRow:       { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: SPACING.lg },
+  avatar:           { width: 52, height: 52, borderRadius: 26, backgroundColor: COLORS.goldFaint,
+                      borderWidth: 1, borderColor: COLORS.goldBorder, alignItems: 'center', justifyContent: 'center' },
+  avatarText:       { color: COLORS.gold, fontSize: 22, fontWeight: FONT.black },
+  profileName:      { ...TYPE.title, color: COLORS.white },
+  profileEmail:     { ...TYPE.caption, color: COLORS.textDim, marginTop: 2 },
+  profileStats:     { flexDirection: 'row', gap: 8 },
   profileStat: {
-    backgroundColor: COLORS.surfaceDark, borderRadius: RADIUS.md,
-    padding: 12, alignItems: 'center', minWidth: 70, borderWidth: 1, borderColor: COLORS.border,
+    flex: 1, backgroundColor: COLORS.surfaceDark, borderRadius: RADIUS.md,
+    paddingVertical: 12, paddingHorizontal: 6, alignItems: 'center',
   },
-  profileStatValue: { color: COLORS.white, fontSize: 18, fontWeight: FONT.black },
-  profileStatLabel: { color: COLORS.textDim, fontSize: 9, letterSpacing: 2, fontWeight: FONT.semibold, marginTop: 4 },
+  profileStatValue: { color: COLORS.white, fontSize: 18, fontWeight: FONT.black, fontVariant: ['tabular-nums'] },
+  profileStatUnit:  { color: COLORS.textMuted, fontSize: 12, fontWeight: FONT.medium },
+  profileStatLabel: { ...TYPE.caption, color: COLORS.textDim, marginTop: 3 },
 
   // Edit form
-  label:  { color: COLORS.textDim, fontSize: 10, letterSpacing: 2, fontWeight: FONT.semibold, marginBottom: SPACING.sm, marginTop: SPACING.md },
-  input:  { backgroundColor: COLORS.surfaceDark, color: COLORS.white, borderRadius: RADIUS.md, padding: 14, fontSize: 16, borderWidth: 1, borderColor: COLORS.border },
-  saveButton:     { backgroundColor: COLORS.gold, paddingVertical: 16, borderRadius: RADIUS.md, alignItems: 'center', marginTop: SPACING.lg },
-  saveButtonText: { color: '#000', fontWeight: FONT.black, letterSpacing: 2, fontSize: 14 },
-  cancelButton:     { paddingVertical: 14, alignItems: 'center', marginTop: SPACING.sm },
-  cancelButtonText: { color: COLORS.textDim, fontSize: 13, letterSpacing: 1 },
+  editTitle: { ...TYPE.heading, color: COLORS.white, marginBottom: 4 },
+  inputRow:  { flexDirection: 'row', gap: 8 },
+  label:     { ...TYPE.caption, color: COLORS.textSecondary, marginBottom: 6, marginTop: SPACING.md },
+  input:     { backgroundColor: COLORS.surfaceDark, color: COLORS.white, borderRadius: RADIUS.md, paddingHorizontal: 14,
+               minHeight: 50, fontSize: 16, borderWidth: 1, borderColor: COLORS.border },
 
   // Nutrition card
-  cardHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.md },
-  cardTitle:     { color: COLORS.white, fontSize: 13, fontWeight: FONT.bold, letterSpacing: 2 },
-  goalBadge:     { backgroundColor: COLORS.goldFaint, borderRadius: RADIUS.sm, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: COLORS.goldBorder },
-  goalBadgeText: { color: COLORS.gold, fontSize: 9, fontWeight: FONT.bold, letterSpacing: 1 },
-  metricRow:  { flexDirection: 'row', gap: 10, marginBottom: SPACING.md },
-  metricBox: {
-    flex: 1, backgroundColor: COLORS.surfaceDark, borderRadius: RADIUS.md,
-    padding: SPACING.md, alignItems: 'center', borderWidth: 1, borderColor: COLORS.border,
-  },
-  metricValue: { color: COLORS.gold, fontSize: 30, fontWeight: FONT.black },
-  metricLabel: { color: COLORS.textDim, fontSize: 9, letterSpacing: 2, fontWeight: FONT.semibold, marginTop: 4 },
-  macroRow: { flexDirection: 'row', gap: SPACING.sm, marginBottom: SPACING.md },
-  macroBox: {
-    flex: 1, backgroundColor: COLORS.surfaceDark, borderRadius: RADIUS.md,
-    padding: 12, alignItems: 'center', borderWidth: 1, borderColor: COLORS.border,
-  },
-  macroValue: { color: COLORS.white, fontSize: 18, fontWeight: FONT.black },
-  macroLabel: { color: COLORS.textDim, fontSize: 9, letterSpacing: 2, fontWeight: FONT.semibold, marginTop: 4 },
-  macroPct:   { color: COLORS.textFaint, fontSize: 10, marginTop: 2 },
-  mentzerNote: {
-    backgroundColor: '#161410', borderRadius: RADIUS.md, padding: 14,
-    borderWidth: 1, borderColor: COLORS.goldFaint, borderLeftWidth: 3, borderLeftColor: COLORS.gold,
-  },
-  mentzerNoteText: { color: COLORS.textMuted, fontSize: 12, fontStyle: 'italic', lineHeight: 20 },
+  goalBadge:     { backgroundColor: COLORS.goldFaint, borderRadius: RADIUS.pill, paddingHorizontal: 10, paddingVertical: 3,
+                   borderWidth: 1, borderColor: COLORS.goldBorder },
+  goalBadgeText: { color: COLORS.gold, fontSize: 11, fontWeight: FONT.semibold, letterSpacing: 1.2 },
+  metricRow:  { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  metricBox:  { flex: 1, backgroundColor: COLORS.surfaceDark, borderRadius: RADIUS.md, padding: SPACING.md, alignItems: 'center' },
+  metricValue:{ color: COLORS.gold, fontSize: 28, fontWeight: FONT.black, fontVariant: ['tabular-nums'] },
+  metricLabel:{ ...TYPE.caption, color: COLORS.textDim, marginTop: 3 },
+  macroRow:   { flexDirection: 'row', gap: 8, marginBottom: SPACING.md },
+  macroBox:   { flex: 1, backgroundColor: COLORS.surfaceDark, borderRadius: RADIUS.md, padding: 12, alignItems: 'center' },
+  macroValue: { color: COLORS.white, fontSize: 20, fontWeight: FONT.black, fontVariant: ['tabular-nums'] },
+  macroUnit:  { color: COLORS.textMuted, fontSize: 12, fontWeight: FONT.medium },
+  macroLabel: { ...TYPE.caption, color: COLORS.textSecondary, marginTop: 3 },
+  macroPct:   { color: COLORS.textDim, fontSize: 11, marginTop: 1 },
+  mentzerNote:      { backgroundColor: COLORS.surfaceDark, borderRadius: RADIUS.md, padding: 14,
+                      borderLeftWidth: 3, borderLeftColor: COLORS.gold },
+  mentzerNoteLabel: { ...TYPE.overline, color: COLORS.gold, marginBottom: 6 },
+  mentzerNoteText:  { ...TYPE.callout, color: COLORS.textSecondary },
 
-  // HD2 Protocol card
-  infoRow:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: COLORS.border },
-  infoLabel: { color: COLORS.textDim, fontSize: 11, letterSpacing: 1, fontWeight: FONT.semibold },
-  infoValue: { color: COLORS.white, fontSize: 13, fontWeight: FONT.medium },
+  // Protocol card
+  infoRow:       { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14 },
+  infoRowBorder: { borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  infoLabel:     { ...TYPE.callout, color: COLORS.textMuted, flex: 1 },
+  infoValue:     { ...TYPE.callout, color: COLORS.white, fontWeight: FONT.medium, textAlign: 'right', flexShrink: 1 },
 
-  predictionCard: {
-    backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.lg,
-    padding: SPACING.md,
-    marginTop: 12,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
+  predictionCard:   { backgroundColor: COLORS.surfaceDark, borderRadius: RADIUS.lg, padding: SPACING.md, marginTop: 12 },
   predictionRow:    { flexDirection: 'row', alignItems: 'center' },
   predictionStat:   { flex: 1, alignItems: 'center' },
-  predictionValue:  { color: COLORS.white, fontSize: 22, fontWeight: FONT.black },
-  predictionLabel:  { color: COLORS.textDim, fontSize: 9, letterSpacing: 2, fontWeight: FONT.semibold, marginTop: 4 },
+  predictionValue:  { color: COLORS.white, fontSize: 22, fontWeight: FONT.black, fontVariant: ['tabular-nums'] },
+  predictionLabel:  { ...TYPE.overline, color: COLORS.textDim, marginTop: 4 },
   predictionDivider:{ width: 1, height: 36, backgroundColor: COLORS.border, marginHorizontal: 16 },
-  predictionWarning:{ color: COLORS.orange, fontSize: 12, lineHeight: 18, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: COLORS.border },
+  predictionWarning:{ ...TYPE.callout, color: COLORS.orange, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: COLORS.border },
 
-  signOutButton: {
-    marginHorizontal: SPACING.screen, marginTop: SPACING.lg,
-    paddingVertical: 18, borderRadius: RADIUS.lg,
-    alignItems: 'center', borderWidth: 1, borderColor: COLORS.border,
-    backgroundColor: COLORS.surface,
-  },
-  signOutText:   { color: COLORS.textDim, fontSize: 13, fontWeight: FONT.semibold, letterSpacing: 2 },
-  settingsIcon:  { color: COLORS.textMuted, fontSize: 22 },
+  signOut: { marginHorizontal: SPACING.screen, marginTop: SPACING.xl },
 });

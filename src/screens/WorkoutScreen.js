@@ -5,16 +5,29 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
-import { scheduleRecoveryNotifications } from '../lib/notifications';
-import { EXERCISES, MUSCLES } from '../data/exercises';
-import { analyzeSet } from '../lib/progression';
+import { scheduleRecoveryNotificationsIfEnabled } from '../lib/notifications';
+import { EXERCISES, MUSCLES, findExercise, canonicalName } from '../data/exercises';
+import { analyzeSet, getNextTarget, isPersonalBest, setsByExercise, bestOf } from '../lib/progression';
+import { loadProgramme, pickNextSession, PROGRAMME_LABELS } from '../lib/programme';
 import { COLORS, FONT, RADIUS, SPACING } from '../theme';
+
+// Accept "82,5" as well as "82.5" (European keyboards)
+const parseWeight = (v) => parseFloat(String(v ?? '').replace(',', '.'));
+
+const formatShortDate = (d) =>
+  d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '';
 
 export default function WorkoutScreen({ navigation }) {
   // Core
   const [phase, setPhase]         = useState('picking'); // 'picking' | 'active'
   const [templates, setTemplates] = useState([]);
   const [userId, setUserId]       = useState(null);
+
+  // Programme
+  const [programme, setProgramme]     = useState({ sessions: [], routineType: null });
+  const [nextSessionKey, setNextSessionKey] = useState(null);
+  const [history, setHistory]         = useState({}); // exercise name → sets, newest first
+  const [sessionLabel, setSessionLabel] = useState(null);
 
   // Active workout
   const [workoutId, setWorkoutId]           = useState(null);
@@ -23,8 +36,11 @@ export default function WorkoutScreen({ navigation }) {
   const [prevBests, setPrevBests]           = useState({});
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [restTimer, setRestTimer]           = useState({ active: false, elapsed: 0 });
+  const [supersetCue, setSupersetCue]       = useState(null);
 
   const [weightIncrement, setWeightIncrement] = useState(2.5);
+  const workoutIdRef = useRef(null);
+  const loggingRef   = useRef(new Set());
 
   // Modals
   const [showExercisePicker, setShowExercisePicker] = useState(false);
@@ -67,14 +83,49 @@ export default function WorkoutScreen({ navigation }) {
 
       const savedIncrement = await AsyncStorage.getItem('weightIncrement');
       if (savedIncrement) setWeightIncrement(parseFloat(savedIncrement));
+
+      // Programme + recent history drive "next up" and per-exercise targets
+      const [prog, { data: recentSets }] = await Promise.all([
+        loadProgramme(user.id),
+        supabase.from('sets')
+          .select('exercise_name, weight_kg, reps, date, workout_id')
+          .eq('user_id', user.id)
+          .order('date', { ascending: false })
+          .limit(1000),
+      ]);
+      const byExercise = setsByExercise(recentSets || [], canonicalName);
+      setHistory(byExercise);
+      setProgramme(prog);
+
+      const lastWorkoutId = recentSets?.[0]?.workout_id;
+      const lastNames = (recentSets || []).filter(s => s.workout_id === lastWorkoutId).map(s => s.exercise_name);
+      setNextSessionKey(pickNextSession(prog.sessions, lastWorkoutId ? lastNames : [])?.key ?? null);
     } catch (e) {
       console.error('initUser error:', e);
     }
   };
 
-  // ── Load prev bests for a list of exercises ───────────────────────────────────
+  // Target for next set: from the most recent logged set, not the all-time best.
+  const targetFor = (exercise) => {
+    const sets = history[exercise.name] || [];
+    return getNextTarget(exercise, sets[0], sets[1], weightIncrement);
+  };
+
+  const initialEntry = (exercise) => {
+    const target = targetFor(exercise);
+    return {
+      weight: target ? String(target.weight) : '',
+      reps:   target ? String(target.repGoal) : '',
+      logged: false, result: null, isPR: false, setId: null,
+    };
+  };
+
+  // ── Load personal bests + prefill targets for a list of exercises ────────────
   const loadPrevBests = async (exercises, uid) => {
     const id = uid || userId;
+    const initialData = {};
+    exercises.forEach(ex => { initialData[ex.name] = initialEntry(ex); });
+    setSetData(initialData);
     if (!id || !exercises.length) return;
 
     const names = exercises.map(e => e.name);
@@ -85,25 +136,29 @@ export default function WorkoutScreen({ navigation }) {
     const pbMap = {};
     (pbs || []).forEach(pb => { pbMap[pb.exercise_name] = pb; });
     setPrevBests(pbMap);
+  };
 
-    const initialData = {};
-    exercises.forEach(ex => {
-      const pb = pbMap[ex.name];
-      initialData[ex.name] = {
-        weight: pb ? String(pb.weight_kg) : '',
-        reps:   pb ? String(pb.reps) : '',
-        logged: false, result: null, isPR: false,
-      };
-    });
-    setSetData(initialData);
+  const resetSession = () => {
+    workoutIdRef.current = null;
+    setWorkoutId(null);
+    setSupersetCue(null);
+  };
+
+  // ── Start the programme's session ─────────────────────────────────────────────
+  const startSession = async (session) => {
+    resetSession();
+    setSessionLabel(session.label);
+    setRoutine(session.exercises);
+    await loadPrevBests(session.exercises, userId);
+    startWorkoutTimer();
+    setPhase('active');
   };
 
   // ── Start from template ───────────────────────────────────────────────────────
   const startFromTemplate = async (template) => {
-    const matched = template.exercises
-      .map(name => EXERCISES.find(e => e.name === name))
-      .filter(Boolean);
-
+    const matched = (template.exercises || []).map(findExercise).filter(Boolean);
+    resetSession();
+    setSessionLabel(template.name);
     setRoutine(matched);
     await loadPrevBests(matched, userId);
     startWorkoutTimer();
@@ -112,10 +167,11 @@ export default function WorkoutScreen({ navigation }) {
 
   // ── Start fresh ───────────────────────────────────────────────────────────────
   const startFresh = () => {
+    resetSession();
+    setSessionLabel(null);
     setRoutine([]);
     setSetData({});
     setPrevBests({});
-    setWorkoutId(null);
     startWorkoutTimer();
     setPhase('active');
   };
@@ -133,7 +189,7 @@ export default function WorkoutScreen({ navigation }) {
       clearInterval(workoutTimerRef.current);
       clearInterval(restTimerRef.current);
       setPhase('picking');
-      setWorkoutId(null);
+      resetSession();
       setRoutine([]);
       setSetData({});
       setPrevBests({});
@@ -152,19 +208,28 @@ export default function WorkoutScreen({ navigation }) {
   };
 
   // ── Ensure workout row ────────────────────────────────────────────────────────
-  const ensureWorkout = async (uid) => {
-    if (workoutId) return workoutId;
-    const { data: workout, error } = await supabase
-      .from('workouts').insert({ user_id: uid }).select().single();
-    if (error) console.error('ensureWorkout error:', error);
-    if (workout) { setWorkoutId(workout.id); return workout.id; }
-    return null;
+  // Shares one in-flight insert so two quick logs can't create two workout rows.
+  const ensureWorkout = (uid) => {
+    if (!workoutIdRef.current) {
+      workoutIdRef.current = (async () => {
+        const { data: workout, error } = await supabase
+          .from('workouts').insert({ user_id: uid }).select().single();
+        if (error || !workout) {
+          console.error('ensureWorkout error:', error);
+          workoutIdRef.current = null; // allow a retry
+          return null;
+        }
+        setWorkoutId(workout.id);
+        return workout.id;
+      })();
+    }
+    return workoutIdRef.current;
   };
 
   // ── Weight / reps controls ────────────────────────────────────────────────────
   const adjustWeight = (name, delta) => {
     setSetData(prev => {
-      const cur = parseFloat(prev[name]?.weight) || 0;
+      const cur = parseWeight(prev[name]?.weight) || 0;
       const next = Math.max(0, Math.round((cur + delta) * 100) / 100);
       return { ...prev, [name]: { ...prev[name], weight: String(next) } };
     });
@@ -197,39 +262,120 @@ export default function WorkoutScreen({ navigation }) {
   };
 
   // ── Log a set ─────────────────────────────────────────────────────────────────
+  // One set per exercise, to failure (HD2). Logging locks the exercise.
   const logSet = async (exercise) => {
+    if (loggingRef.current.has(exercise.name)) return;
     const data = setData[exercise.name] || {};
-    const weightNum = parseFloat(data.weight);
-    const repsNum   = parseInt(data.reps);
+    const weightNum = parseWeight(data.weight);
+    const repsNum   = parseInt(data.reps, 10);
 
-    if (!weightNum || !repsNum || isNaN(weightNum) || isNaN(repsNum)) {
+    if (isNaN(weightNum) || weightNum < 0 || !repsNum || isNaN(repsNum)) {
       Alert.alert('Missing info', 'Enter weight and reps before logging.');
       return;
     }
 
-    const pb       = prevBests[exercise.name] || null;
-    const analysis = analyzeSet(exercise, weightNum, repsNum, pb);
-    const wid      = await ensureWorkout(userId);
+    loggingRef.current.add(exercise.name);
+    try {
+      const pb       = prevBests[exercise.name] || null;
+      const lastSet  = (history[exercise.name] || [])[0] || null;
+      const analysis = analyzeSet(exercise, weightNum, repsNum, lastSet, weightIncrement);
 
-    await supabase.from('sets').insert({
-      user_id: userId, workout_id: wid,
-      exercise_name: exercise.name, weight_kg: weightNum, reps: repsNum,
-    });
+      let setId = null;
+      if (userId) {
+        const wid = await ensureWorkout(userId);
+        if (!wid) throw new Error('Could not start workout');
+        const { data: inserted, error } = await supabase.from('sets').insert({
+          user_id: userId, workout_id: wid,
+          exercise_name: exercise.name, weight_kg: weightNum, reps: repsNum,
+        }).select('id').single();
+        if (error) throw error;
+        setId = inserted?.id ?? null;
+      }
 
-    const isPR = !pb || weightNum > pb.weight_kg || repsNum > pb.reps;
-    if (isPR) {
-      await supabase.from('personal_bests').upsert({
-        user_id: userId, exercise_name: exercise.name,
-        weight_kg: weightNum, reps: repsNum,
-      }, { onConflict: 'user_id,exercise_name' });
-      setPrevBests(prev => ({ ...prev, [exercise.name]: { weight_kg: weightNum, reps: repsNum } }));
+      const isPR = isPersonalBest(pb, weightNum, repsNum);
+      if (isPR && userId) {
+        const { error: pbError } = await supabase.from('personal_bests').upsert({
+          user_id: userId, exercise_name: exercise.name,
+          weight_kg: weightNum, reps: repsNum,
+        }, { onConflict: 'user_id,exercise_name' });
+        if (pbError) console.error('personal_bests upsert error:', pbError);
+      }
+      if (isPR) {
+        setPrevBests(prev => ({ ...prev, [exercise.name]: { weight_kg: weightNum, reps: repsNum } }));
+      }
+
+      setSetData(prev => ({
+        ...prev,
+        [exercise.name]: {
+          ...prev[exercise.name],
+          weight: String(weightNum), reps: String(repsNum),
+          logged: true, result: analysis, isPR, prevPB: pb, setId,
+        },
+      }));
+
+      // Pre-exhaust → go straight into the compound: no rest (HD2 superset rule)
+      const partner = exercise.supersetWith && routine.find(e => e.name === exercise.supersetWith);
+      if (partner && !setData[partner.name]?.logged) {
+        dismissRestTimer();
+        setSupersetCue(partner.name);
+      } else {
+        setSupersetCue(null);
+        startRestTimer();
+      }
+    } catch (e) {
+      console.error('logSet error:', e);
+      Alert.alert('Set not saved', 'Could not save this set. Check your connection and try again.');
+    } finally {
+      loggingRef.current.delete(exercise.name);
     }
+  };
 
-    setSetData(prev => ({
-      ...prev,
-      [exercise.name]: { ...prev[exercise.name], logged: true, result: analysis, isPR },
-    }));
-    startRestTimer();
+  // ── Undo a logged set (mis-typed weight or reps) ──────────────────────────────
+  const undoSet = (exercise) => {
+    const data = setData[exercise.name] || {};
+    const doUndo = async () => {
+      try {
+        if (userId && data.setId) {
+          const { error } = await supabase.from('sets').delete().eq('id', data.setId);
+          if (error) throw error;
+          // Restore the personal best from what remains in the log
+          if (data.isPR) {
+            const { data: remaining } = await supabase
+              .from('sets').select('weight_kg, reps, date')
+              .eq('user_id', userId).eq('exercise_name', exercise.name);
+            const best = bestOf(remaining || []);
+            if (best) {
+              await supabase.from('personal_bests').upsert({
+                user_id: userId, exercise_name: exercise.name,
+                weight_kg: best.weight_kg, reps: best.reps,
+              }, { onConflict: 'user_id,exercise_name' });
+            } else {
+              await supabase.from('personal_bests').delete()
+                .eq('user_id', userId).eq('exercise_name', exercise.name);
+            }
+          }
+        }
+        if (data.isPR) {
+          setPrevBests(prev => {
+            const next = { ...prev };
+            if (data.prevPB) next[exercise.name] = data.prevPB; else delete next[exercise.name];
+            return next;
+          });
+        }
+        setSetData(prev => ({
+          ...prev,
+          [exercise.name]: { ...prev[exercise.name], logged: false, result: null, isPR: false, setId: null, prevPB: null },
+        }));
+        setSupersetCue(null);
+      } catch (e) {
+        console.error('undoSet error:', e);
+        Alert.alert('Could not undo', 'Check your connection and try again.');
+      }
+    };
+    Alert.alert('Edit Set', `Remove the logged ${exercise.name} set so you can correct it?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Edit', onPress: doUndo },
+    ]);
   };
 
   // ── Add exercise mid-workout ──────────────────────────────────────────────────
@@ -238,23 +384,14 @@ export default function WorkoutScreen({ navigation }) {
     if (routine.find(e => e.name === exercise.name)) return;
 
     setRoutine(prev => [...prev, exercise]);
+    setSetData(prev => ({ ...prev, [exercise.name]: initialEntry(exercise) }));
 
-    let pb = prevBests[exercise.name];
-    if (!pb && userId) {
+    if (!prevBests[exercise.name] && userId) {
       const { data } = await supabase
         .from('personal_bests').select('*')
-        .eq('user_id', userId).eq('exercise_name', exercise.name).single();
-      if (data) { setPrevBests(prev => ({ ...prev, [exercise.name]: data })); pb = data; }
+        .eq('user_id', userId).eq('exercise_name', exercise.name).maybeSingle();
+      if (data) setPrevBests(prev => ({ ...prev, [exercise.name]: data }));
     }
-
-    setSetData(prev => ({
-      ...prev,
-      [exercise.name]: {
-        weight: pb ? String(pb.weight_kg) : '',
-        reps:   pb ? String(pb.reps) : '',
-        logged: false, result: null, isPR: false,
-      },
-    }));
   };
 
   // ── Delete template ───────────────────────────────────────────────────────────
@@ -275,7 +412,7 @@ export default function WorkoutScreen({ navigation }) {
     setSaveModal(false);
     clearInterval(workoutTimerRef.current);
     clearInterval(restTimerRef.current);
-    await scheduleRecoveryNotifications();
+    try { await scheduleRecoveryNotificationsIfEnabled(); } catch (_) {}
     navigation.navigate('Main');
   };
 
@@ -323,6 +460,42 @@ export default function WorkoutScreen({ navigation }) {
 
         <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 60 }}>
 
+          {programme.sessions.length > 0 && (
+            <>
+              <Text style={styles.sectionLabel}>
+                YOUR PROGRAMME{programme.routineType ? ` · ${(PROGRAMME_LABELS[programme.routineType] || '').toUpperCase()}` : ''}
+              </Text>
+              {programme.sessions.map(session => {
+                const isNext = session.key === nextSessionKey;
+                return (
+                  <TouchableOpacity
+                    key={session.key}
+                    style={[styles.templateCard, isNext && styles.programmeCardNext]}
+                    onPress={() => startSession(session)}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Start ${session.label}${isNext ? ', next up' : ''}`}
+                  >
+                    <View style={styles.templateCardMain}>
+                      {isNext && programme.sessions.length > 1 && (
+                        <Text style={styles.nextUpTag}>NEXT UP</Text>
+                      )}
+                      <Text style={styles.templateName}>{session.label}</Text>
+                      <Text style={styles.templateExercises} numberOfLines={2}>
+                        {session.exercises.map(e => e.name).join(' · ')}
+                      </Text>
+                      <Text style={styles.templateCount}>
+                        {session.exercises.length} exercise{session.exercises.length !== 1 ? 's' : ''} · 1 set each to failure
+                      </Text>
+                    </View>
+                    <Text style={styles.chevron}>›</Text>
+                  </TouchableOpacity>
+                );
+              })}
+              <View style={styles.sectionDivider} />
+            </>
+          )}
+
           {templates.length > 0 ? (
             <>
               <Text style={styles.sectionLabel}>SAVED WORKOUTS</Text>
@@ -336,7 +509,7 @@ export default function WorkoutScreen({ navigation }) {
                   <View style={styles.templateCardMain}>
                     <Text style={styles.templateName}>{template.name}</Text>
                     <Text style={styles.templateExercises} numberOfLines={1}>
-                      {template.exercises.join(' · ')}
+                      {(template.exercises || []).map(canonicalName).join(' · ')}
                     </Text>
                     <Text style={styles.templateCount}>
                       {template.exercises.length} exercise{template.exercises.length !== 1 ? 's' : ''}
@@ -347,6 +520,8 @@ export default function WorkoutScreen({ navigation }) {
                       style={styles.deleteBtn}
                       onPress={() => deleteTemplate(template)}
                       hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Delete saved workout ${template.name}`}
                     >
                       <Text style={styles.deleteBtnText}>✕</Text>
                     </TouchableOpacity>
@@ -356,7 +531,7 @@ export default function WorkoutScreen({ navigation }) {
               ))}
               <View style={styles.sectionDivider} />
             </>
-          ) : (
+          ) : programme.sessions.length === 0 && (
             <View style={styles.noTemplatesHint}>
               <Text style={styles.noTemplatesText}>
                 No saved workouts yet.{'\n'}Finish a workout and save it to reuse it here.
@@ -387,7 +562,9 @@ export default function WorkoutScreen({ navigation }) {
           <Text style={styles.backButton}>← BACK</Text>
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>WORKOUT</Text>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {sessionLabel ? sessionLabel.toUpperCase() : 'WORKOUT'}
+          </Text>
           <View style={styles.timerBadge}>
             <Text style={styles.timerText}>{formatTime(elapsedSeconds)}</Text>
           </View>
@@ -411,6 +588,7 @@ export default function WorkoutScreen({ navigation }) {
               const data  = setData[exercise.name] || {};
               const pb    = prevBests[exercise.name];
               const ready = !!(data.weight && data.reps);
+              const target = targetFor(exercise);
 
               if (data.logged) {
                 return (
@@ -431,11 +609,23 @@ export default function WorkoutScreen({ navigation }) {
                     <Text style={styles.doneStats}>{data.weight}kg × {data.reps} reps</Text>
                     {data.result && (
                       <View style={styles.doneResult}>
+                        {data.result.progressNote && (
+                          <Text style={styles.doneResultNote}>{data.result.progressNote}</Text>
+                        )}
                         <Text style={styles.doneResultNext}>
-                          Next: {data.result.nextWeight}kg · {data.result.restDays}+ days rest
+                          Next session: {data.result.nextWeight}kg · {data.result.restDays}+ days rest
                         </Text>
                       </View>
                     )}
+                    <TouchableOpacity
+                      style={styles.editSetBtn}
+                      onPress={() => undoSet(exercise)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Edit logged ${exercise.name} set`}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text style={styles.editSetBtnText}>EDIT</Text>
+                    </TouchableOpacity>
                   </View>
                 );
               }
@@ -456,10 +646,35 @@ export default function WorkoutScreen({ navigation }) {
                     )}
                   </View>
 
+                  {exercise.supersetWith && (
+                    <Text style={styles.supersetNote}>
+                      SUPERSET → straight into {exercise.supersetWith}, no rest
+                    </Text>
+                  )}
+                  {supersetCue === exercise.name && (
+                    <Text style={styles.supersetCue}>GO NOW — no rest after the pre-exhaust</Text>
+                  )}
+
                   <View style={styles.prevRow}>
-                    <Text style={styles.prevLabel}>PREV BEST</Text>
+                    <Text style={styles.prevLabel}>LAST TIME</Text>
                     <Text style={styles.prevValue}>
-                      {pb ? `${pb.weight_kg}kg × ${pb.reps} reps` : 'First time'}
+                      {target
+                        ? `${target.lastWeight}kg × ${target.lastReps} · ${formatShortDate(target.lastDate)}`
+                        : `First time — pick a weight for ${exercise.repRange[0]}-${exercise.repRange[1]} reps`}
+                    </Text>
+                  </View>
+                  {target && (
+                    <View style={styles.prevRow}>
+                      <Text style={styles.prevLabel}>TARGET</Text>
+                      <Text style={[styles.prevValue, styles.targetValue]}>
+                        {target.weight}kg × {target.repGoal}+ reps
+                      </Text>
+                    </View>
+                  )}
+                  <View style={styles.prevRow}>
+                    <Text style={styles.prevLabel}>BEST</Text>
+                    <Text style={styles.prevValue}>
+                      {pb ? `${pb.weight_kg}kg × ${pb.reps} reps` : '—'}
                     </Text>
                   </View>
 
@@ -469,7 +684,7 @@ export default function WorkoutScreen({ navigation }) {
                     <View style={[styles.inputGroup, { flex: 3 }]}>
                       <Text style={styles.inputGroupLabel}>WEIGHT</Text>
                       <View style={styles.inputControls}>
-                        <TouchableOpacity style={styles.adjBtn} onPress={() => adjustWeight(exercise.name, -weightIncrement)}>
+                        <TouchableOpacity style={styles.adjBtn} onPress={() => adjustWeight(exercise.name, -weightIncrement)} accessibilityRole="button" accessibilityLabel={`Decrease weight by ${weightIncrement} kilograms`}>
                           <Text style={styles.adjBtnText}>−</Text>
                         </TouchableOpacity>
                         <TextInput
@@ -477,10 +692,12 @@ export default function WorkoutScreen({ navigation }) {
                           value={data.weight}
                           onChangeText={v => updateField(exercise.name, 'weight', v)}
                           keyboardType="decimal-pad"
+                          accessibilityLabel={`${exercise.name} weight in kilograms`}
+                          selectTextOnFocus
                           placeholder="0"
                           placeholderTextColor={COLORS.textFaint}
                         />
-                        <TouchableOpacity style={styles.adjBtn} onPress={() => adjustWeight(exercise.name, weightIncrement)}>
+                        <TouchableOpacity style={styles.adjBtn} onPress={() => adjustWeight(exercise.name, weightIncrement)} accessibilityRole="button" accessibilityLabel={`Increase weight by ${weightIncrement} kilograms`}>
                           <Text style={styles.adjBtnText}>+</Text>
                         </TouchableOpacity>
                       </View>
@@ -490,7 +707,7 @@ export default function WorkoutScreen({ navigation }) {
                     <View style={[styles.inputGroup, { flex: 2 }]}>
                       <Text style={styles.inputGroupLabel}>REPS</Text>
                       <View style={styles.inputControls}>
-                        <TouchableOpacity style={styles.adjBtn} onPress={() => adjustReps(exercise.name, -1)}>
+                        <TouchableOpacity style={styles.adjBtn} onPress={() => adjustReps(exercise.name, -1)} accessibilityRole="button" accessibilityLabel="Decrease reps by one">
                           <Text style={styles.adjBtnText}>−</Text>
                         </TouchableOpacity>
                         <TextInput
@@ -498,10 +715,12 @@ export default function WorkoutScreen({ navigation }) {
                           value={data.reps}
                           onChangeText={v => updateField(exercise.name, 'reps', v)}
                           keyboardType="number-pad"
+                          accessibilityLabel={`${exercise.name} reps`}
+                          selectTextOnFocus
                           placeholder="0"
                           placeholderTextColor={COLORS.textFaint}
                         />
-                        <TouchableOpacity style={styles.adjBtn} onPress={() => adjustReps(exercise.name, 1)}>
+                        <TouchableOpacity style={styles.adjBtn} onPress={() => adjustReps(exercise.name, 1)} accessibilityRole="button" accessibilityLabel="Increase reps by one">
                           <Text style={styles.adjBtnText}>+</Text>
                         </TouchableOpacity>
                       </View>
@@ -512,6 +731,8 @@ export default function WorkoutScreen({ navigation }) {
                       style={[styles.completeBtn, ready && styles.completeBtnReady]}
                       onPress={() => logSet(exercise)}
                       activeOpacity={0.8}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Log ${exercise.name} set`}
                     >
                       <Text style={[styles.completeBtnText, ready && styles.completeBtnTextReady]}>✓</Text>
                     </TouchableOpacity>
@@ -846,4 +1067,14 @@ const styles = StyleSheet.create({
   exerciseOptionDetail:    { color: '#888', fontSize: 12 },
   addedTag:                { color: COLORS.green, fontSize: 11, fontWeight: FONT.medium },
   chevron:                 { color: COLORS.textMuted, fontSize: 24 },
+
+  // ── Programme / targets ───────────────────────────────────────────────────────
+  programmeCardNext: { borderColor: COLORS.goldBorder },
+  nextUpTag:         { color: COLORS.gold, fontSize: 10, fontWeight: FONT.black, letterSpacing: 2, marginBottom: 4 },
+  targetValue:       { color: COLORS.gold, fontWeight: FONT.bold },
+  supersetNote:      { color: COLORS.gold, fontSize: 10, fontWeight: FONT.semibold, letterSpacing: 1, marginBottom: 10 },
+  supersetCue:       { color: COLORS.gold, fontSize: 12, fontWeight: FONT.black, letterSpacing: 1, marginBottom: 10 },
+  doneResultNote:    { color: COLORS.textMuted, fontSize: 12, marginBottom: 2 },
+  editSetBtn:        { alignSelf: 'flex-end', marginTop: SPACING.sm, paddingVertical: 4, paddingHorizontal: 8 },
+  editSetBtnText:    { color: COLORS.textMuted, fontSize: 11, fontWeight: FONT.semibold, letterSpacing: 1.5 },
 });

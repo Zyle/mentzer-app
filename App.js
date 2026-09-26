@@ -8,6 +8,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import * as NavigationBar from 'expo-navigation-bar';
 import { supabase } from './src/lib/supabase';
 import { registerForPushNotifications } from './src/lib/notifications';
+import { saveRoutineType } from './src/lib/programme';
 import ErrorBoundary from './src/components/ErrorBoundary';
 
 import LoginScreen from './src/screens/LoginScreen';
@@ -203,11 +204,7 @@ export default function App() {
     // Save the chosen programme type to the profile
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (user && selectedProgramme) {
-        await supabase.from('profiles')
-          .update({ routine_type: selectedProgramme })
-          .eq('id', user.id);
-      }
+      await saveRoutineType(user?.id, selectedProgramme);
     } catch (_) {}
     setNeedsRoutine(false);
   };

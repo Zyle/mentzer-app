@@ -1,5 +1,7 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
+import Button from './Button';
+import { COLORS, FONT } from '../theme';
 
 export default class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -18,19 +20,19 @@ export default class ErrorBoundary extends React.Component {
   render() {
     if (this.state.hasError) {
       return (
-        <View style={styles.container}>
+        <View style={styles.container} accessibilityRole="alert">
           <Text style={styles.title}>MENTZER</Text>
-          <Text style={styles.sub}>HEAVY DUTY II</Text>
+          <Text style={styles.sub}>HEAVY DUTY</Text>
           <Text style={styles.heading}>Something went wrong.</Text>
           <Text style={styles.message}>
             {this.state.error?.message || 'An unexpected error occurred.'}
           </Text>
-          <TouchableOpacity
-            style={styles.button}
+          <Button
+            title="TRY AGAIN"
+            variant="secondary"
             onPress={() => this.setState({ hasError: false, error: null })}
-          >
-            <Text style={styles.buttonText}>TRY AGAIN</Text>
-          </TouchableOpacity>
+            style={styles.button}
+          />
         </View>
       );
     }
@@ -41,26 +43,12 @@ export default class ErrorBoundary extends React.Component {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1, backgroundColor: '#0a0a0a',
+    flex: 1, backgroundColor: COLORS.background,
     justifyContent: 'center', alignItems: 'center', padding: 32,
   },
-  title: {
-    fontSize: 28, fontWeight: '900', color: '#fff', letterSpacing: 6, marginBottom: 4,
-  },
-  sub: {
-    fontSize: 10, color: '#c9a84c', letterSpacing: 4, marginBottom: 40,
-  },
-  heading: {
-    color: '#fff', fontSize: 18, fontWeight: '800', marginBottom: 12, textAlign: 'center',
-  },
-  message: {
-    color: '#555', fontSize: 13, lineHeight: 20, textAlign: 'center', marginBottom: 32,
-  },
-  button: {
-    backgroundColor: '#1c1c1e', borderWidth: 1, borderColor: '#2c2c2e',
-    borderRadius: 12, paddingVertical: 16, paddingHorizontal: 32,
-  },
-  buttonText: {
-    color: '#c9a84c', fontSize: 13, fontWeight: '900', letterSpacing: 2,
-  },
+  title:   { fontSize: 28, fontWeight: FONT.black, color: COLORS.white, letterSpacing: 6, marginBottom: 4 },
+  sub:     { fontSize: 11, color: COLORS.gold, letterSpacing: 4, marginBottom: 40 },
+  heading: { color: COLORS.white, fontSize: 18, fontWeight: FONT.bold, marginBottom: 12, textAlign: 'center' },
+  message: { color: COLORS.textMuted, fontSize: 14, lineHeight: 21, textAlign: 'center', marginBottom: 32 },
+  button:  { alignSelf: 'stretch' },
 });

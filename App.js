@@ -5,10 +5,12 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text, View, ActivityIndicator, Platform, StyleSheet, Animated, AppState } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import * as NavigationBar from 'expo-navigation-bar';
 import { supabase } from './src/lib/supabase';
 import { registerForPushNotifications } from './src/lib/notifications';
 import ErrorBoundary from './src/components/ErrorBoundary';
+import { COLORS, FONT } from './src/theme';
 
 import LoginScreen from './src/screens/LoginScreen';
 import OnboardingScreen from './src/screens/OnboardingScreen';
@@ -27,26 +29,32 @@ import SettingsScreen from './src/screens/SettingsScreen';
 const Stack = createNativeStackNavigator();
 const Tab   = createBottomTabNavigator();
 
-// Minimal tab icon: Feather icon + active dot indicator
+// Tab icon: Feather icon with a gold pill behind the active tab
 function TabIcon({ name, color, focused }) {
   return (
-    <View style={ti.wrap}>
-      <Feather name={name} size={20} color={color} strokeWidth={focused ? 2.5 : 1.5} />
-      {focused && <View style={ti.dot} />}
+    <View style={[ti.wrap, focused && ti.wrapActive]}>
+      <Feather name={name} size={20} color={color} />
     </View>
   );
 }
 const ti = StyleSheet.create({
-  wrap: { alignItems: 'center', justifyContent: 'center', gap: 4 },
-  dot:  { width: 3, height: 3, borderRadius: 2, backgroundColor: '#c9a84c' },
+  wrap:       { width: 52, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  wrapActive: { backgroundColor: COLORS.goldFaint },
 });
 
 const sp = StyleSheet.create({
-  overlay:  { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-              backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', zIndex: 999 },
-  wordmark: { color: '#c9a84c', fontSize: 36, fontWeight: '900', letterSpacing: 12 },
-  sub:      { color: '#333', fontSize: 10, fontWeight: '700', letterSpacing: 6, marginTop: 10 },
+  overlay:  { ...StyleSheet.absoluteFillObject,
+              backgroundColor: COLORS.background, justifyContent: 'center', alignItems: 'center', zIndex: 999 },
+  wordmark: { color: COLORS.gold, fontSize: 34, fontWeight: FONT.black, letterSpacing: 12 },
+  sub:      { color: COLORS.textDim, fontSize: 11, fontWeight: FONT.semibold, letterSpacing: 6, marginTop: 10 },
 });
+
+const TABS = [
+  { name: 'Home',     label: 'Today',    icon: 'sun',         component: HomeScreen },
+  { name: 'Progress', label: 'Progress', icon: 'trending-up', component: ProgressScreen },
+  { name: 'History',  label: 'History',  icon: 'calendar',    component: WorkoutHistoryScreen },
+  { name: 'Profile',  label: 'Profile',  icon: 'user',        component: ProfileScreen },
+];
 
 function TabNavigator() {
   const insets = useSafeAreaInsets();
@@ -55,52 +63,47 @@ function TabNavigator() {
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: '#0a0a0a',
-          borderTopColor: '#161616',
+          backgroundColor: COLORS.background,
+          borderTopColor: COLORS.border,
           borderTopWidth: 1,
-          paddingBottom: 8 + insets.bottom,
-          paddingTop: 10,
-          height: 72 + insets.bottom,
+          paddingBottom: 6 + insets.bottom,
+          paddingTop: 8,
+          height: 66 + insets.bottom,
         },
-        tabBarActiveTintColor: '#c9a84c',
-        tabBarInactiveTintColor: '#3a3a3a',
-        tabBarLabelStyle: {
-          fontSize: 9,
-          letterSpacing: 1.5,
-          fontWeight: '700',
-        },
-        tabBarShowLabel: false,
+        tabBarActiveTintColor: COLORS.gold,
+        tabBarInactiveTintColor: COLORS.textDim,
+        tabBarLabelStyle: { fontSize: 11, fontWeight: FONT.semibold, marginTop: 2 },
       }}
     >
-      <Tab.Screen
-        name="Home"
-        component={HomeScreen}
-        options={{ tabBarIcon: ({ color, focused }) => <TabIcon name="home" color={color} focused={focused} /> }}
-      />
-      <Tab.Screen
-        name="Progress"
-        component={ProgressScreen}
-        options={{ tabBarIcon: ({ color, focused }) => <TabIcon name="bar-chart-2" color={color} focused={focused} /> }}
-      />
-      <Tab.Screen
-        name="History"
-        component={WorkoutHistoryScreen}
-        options={{ tabBarIcon: ({ color, focused }) => <TabIcon name="calendar" color={color} focused={focused} /> }}
-      />
-      <Tab.Screen
-        name="Profile"
-        component={ProfileScreen}
-        options={{ tabBarIcon: ({ color, focused }) => <TabIcon name="user" color={color} focused={focused} /> }}
-      />
+      {TABS.map(t => (
+        <Tab.Screen
+          key={t.name}
+          name={t.name}
+          component={t.component}
+          options={{
+            tabBarLabel: t.label,
+            tabBarAccessibilityLabel: `${t.label} tab`,
+            tabBarIcon: ({ color, focused }) => <TabIcon name={t.icon} color={color} focused={focused} />,
+          }}
+        />
+      ))}
     </Tab.Navigator>
   );
 }
 
 // ─── Dev mode ─────────────────────────────────────────────────────────────────
 // Set to 'onboarding', 'exercise', 'main', or false (real auth)
-const DEV_SCREEN = 'exercise';
+const DEV_SCREEN = false;
 
 export default function App() {
+  return (
+    <SafeAreaProvider>
+      <AppContent />
+    </SafeAreaProvider>
+  );
+}
+
+function AppContent() {
   const [session, setSession]                   = useState(null);
   const [loading, setLoading]                   = useState(true);
   const [needsOnboarding, setNeedsOnboarding]   = useState(false);
@@ -187,9 +190,9 @@ export default function App() {
       splashOpacity.setValue(0);
       setShowSplash(true);
       Animated.sequence([
-        Animated.timing(splashOpacity, { toValue: 1, duration: 600, useNativeDriver: true }),
-        Animated.delay(1800),
-        Animated.timing(splashOpacity, { toValue: 0, duration: 800, useNativeDriver: true }),
+        Animated.timing(splashOpacity, { toValue: 1, duration: 350, useNativeDriver: true }),
+        Animated.delay(700),
+        Animated.timing(splashOpacity, { toValue: 0, duration: 450, useNativeDriver: true }),
       ]).start(() => setShowSplash(false));
     }
   }, [loading]);
@@ -214,8 +217,8 @@ export default function App() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#0a0a0a', justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator color="#c9a84c" />
+      <View style={{ flex: 1, backgroundColor: COLORS.background, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator color={COLORS.gold} accessibilityLabel="Loading" />
       </View>
     );
   }
@@ -242,10 +245,10 @@ export default function App() {
   }
 
   return (
-    <SafeAreaProvider>
     <ErrorBoundary>
+      <StatusBar style="light" />
       {showSplash && (
-        <Animated.View style={[sp.overlay, { opacity: splashOpacity }]}>
+        <Animated.View style={[sp.overlay, { opacity: splashOpacity }]} pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
           <Text style={sp.wordmark}>MENTZER</Text>
           <Text style={sp.sub}>HEAVY DUTY</Text>
         </Animated.View>
@@ -266,6 +269,5 @@ export default function App() {
         </Stack.Navigator>
       </NavigationContainer>
     </ErrorBoundary>
-    </SafeAreaProvider>
   );
 }

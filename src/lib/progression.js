@@ -1,7 +1,17 @@
 // Mike Mentzer HD2 Progression Logic
 // One set to absolute failure. Rest 4-7 days. Progress every session.
 
-export const analyzeSet = (exercise, weightKg, reps, previousBest) => {
+// Round to the nearest plate increment the user can actually load.
+const roundTo = (value, increment) => {
+  const inc = increment > 0 ? increment : 0.25;
+  return Math.round(Math.round(value / inc) * inc * 100) / 100;
+};
+
+// analyzeSet(exercise, weightKg, reps, previous, increment)
+//   previous  — the set logged for this exercise at the PREVIOUS session
+//               ({ weight_kg, reps }), used to spot progress or regression.
+//   increment — the user's smallest weight jump (Settings); defaults to 0.25kg.
+export const analyzeSet = (exercise, weightKg, reps, previous, increment = 0.25) => {
   const { repRange } = exercise;
   const [minReps, maxReps] = repRange;
 
@@ -14,18 +24,19 @@ export const analyzeSet = (exercise, weightKg, reps, previousBest) => {
   };
 
   // HD2 Progression Rule:
-  // Below min reps → reduce 10%
+  // Below min reps → reduce ~10%
   // Within range → same weight, push to absolute failure again
-  // Above max reps → increase 10%
+  // Above max reps → increase ~10%
+  // Always move by at least one loadable increment so the target is achievable.
 
   if (reps < minReps) {
-    const newWeight = Math.round((weightKg * 0.9) * 4) / 4;
+    const newWeight = Math.max(0, Math.min(roundTo(weightKg * 0.9, increment), roundTo(weightKg - increment, increment)));
     result.nextWeight = newWeight;
     result.action = 'reduce';
     result.restDays = 5;
     result.message = `Fell below ${minReps} reps. Reduce to ${newWeight}kg next session. Failure came too early — either the weight was too heavy or recovery was incomplete. Ensure full ${result.restDays}+ days rest.`;
   } else if (reps > maxReps) {
-    const newWeight = Math.round((weightKg * 1.1) * 4) / 4;
+    const newWeight = Math.max(roundTo(weightKg * 1.1, increment), roundTo(weightKg + increment, increment));
     result.nextWeight = newWeight;
     result.action = 'increase';
     result.restDays = 4;
@@ -34,29 +45,77 @@ export const analyzeSet = (exercise, weightKg, reps, previousBest) => {
     result.nextWeight = weightKg;
     result.action = 'maintain';
     result.restDays = 4;
-    result.message = `Stay at ${weightKg}kg. Push to absolute muscular failure — not near failure, not comfortable failure. The point at which another rep is physically impossible.`;
+    result.message = `Stay at ${weightKg}kg and beat ${reps} reps. Push to absolute muscular failure — not near failure, not comfortable failure. The point at which another rep is physically impossible.`;
   }
 
   // High-demand exercises need more rest
   const highDemandExercises = ['Squats', 'Deadlifts', 'Leg Press'];
-  if (highDemandExercises.includes(exercise.name)) {
+  if (exercise.systemic || highDemandExercises.includes(exercise.name)) {
     result.restDays = Math.max(result.restDays, 5);
     result.message += ` ${exercise.name} taxes the entire system — take at least ${result.restDays} days before your next session.`;
   }
 
-  // Check progress vs previous best
-  if (previousBest) {
-    if (weightKg > previousBest.weight_kg) {
-      result.progressNote = `New weight PR. Up from ${previousBest.weight_kg}kg.`;
-    } else if (reps > previousBest.reps && weightKg === previousBest.weight_kg) {
-      result.progressNote = `New rep PR at this weight. Up from ${previousBest.reps} reps.`;
-    } else if (reps < previousBest.reps && weightKg === previousBest.weight_kg) {
-      result.progressNote = `Reps dropped from ${previousBest.reps}. Check rest, sleep and calorie intake. Consider adding an extra rest day next time.`;
+  // Compare with the previous session for this exercise
+  if (previous) {
+    if (weightKg > previous.weight_kg) {
+      result.progressNote = `Up from ${previous.weight_kg}kg last session.`;
+    } else if (reps > previous.reps && weightKg === previous.weight_kg) {
+      result.progressNote = `+${reps - previous.reps} rep${reps - previous.reps !== 1 ? 's' : ''} on last session at this weight.`;
+    } else if (reps < previous.reps && weightKg === previous.weight_kg) {
+      result.progressNote = `Reps dropped from ${previous.reps}. Check rest, sleep and calorie intake. Consider adding an extra rest day next time.`;
       result.restDays = Math.max(result.restDays + 1, 6);
     }
   }
 
   return result;
+};
+
+// A personal best is heavier weight, or more reps at the same (or heavier) weight.
+// More reps at a LIGHTER weight is not a PB.
+export const isPersonalBest = (pb, weightKg, reps) => {
+  if (!pb) return true;
+  if (weightKg > pb.weight_kg) return true;
+  return weightKg === pb.weight_kg && reps > pb.reps;
+};
+
+// Pick the best set out of a list (heaviest, then most reps at that weight).
+export const bestOf = (sets) => sets.reduce(
+  (best, s) => (isPersonalBest(best, s.weight_kg, s.reps) ? s : best),
+  null,
+);
+
+// Group sets by exercise, newest first. Sets from the same day are kept in
+// insertion order (later rows win) when `date` has no time component.
+export const setsByExercise = (sets, canonical = n => n) => {
+  const indexed = (sets || []).map((s, i) => ({ ...s, _i: i }));
+  indexed.sort((a, b) => {
+    const d = new Date(b.date || 0) - new Date(a.date || 0);
+    return d !== 0 ? d : b._i - a._i;
+  });
+  const map = {};
+  indexed.forEach(s => {
+    const key = canonical(s.exercise_name);
+    (map[key] = map[key] || []).push(s);
+  });
+  return map;
+};
+
+// Next-session target from the most recent set (and the one before it).
+export const getNextTarget = (exercise, lastSet, priorSet, increment = 0.25) => {
+  if (!lastSet) return null;
+  const analysis = analyzeSet(exercise, lastSet.weight_kg, lastSet.reps, priorSet || null, increment);
+  const [minReps, maxReps] = exercise.repRange;
+  const repGoal = analysis.action === 'maintain'
+    ? Math.min(lastSet.reps + 1, maxReps + 1)
+    : minReps;
+  return {
+    ...analysis,
+    lastWeight: lastSet.weight_kg,
+    lastReps:   lastSet.reps,
+    lastDate:   lastSet.date,
+    weight:     analysis.nextWeight,
+    repGoal,
+  };
 };
 
 const pick = arr => arr[Math.floor(Math.random() * arr.length)];

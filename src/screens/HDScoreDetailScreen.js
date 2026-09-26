@@ -469,8 +469,11 @@ export default function HDScoreDetailScreen({ navigation }) {
         supabase.from('calorie_logs').select('*').eq('user_id', user.id).gte('date', cutoff6M),
       ]);
       setProfile(profRes.data);
-      setAllWorkouts(wktRes.data || []);
-      setAllSets(setRes.data || []);
+      // Only count workouts with at least one set logged, matching the Home card
+      const sets      = setRes.data || [];
+      const loggedIds = new Set(sets.map(st => st.workout_id));
+      setAllWorkouts((wktRes.data || []).filter(w => loggedIds.has(w.id)));
+      setAllSets(sets);
       setCalLogs(logRes.data || []);
     } catch (e) {
       console.error('[HDScoreDetail]', e);

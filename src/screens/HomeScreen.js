@@ -715,8 +715,11 @@ export default function HomeScreen({ navigation }) {
 
       const prof    = profRes.data;
       const target  = calcCalories(prof);
-      const wkts    = workoutsRes.data || [];
       const sets    = setsRes.data     || [];
+      // Ignore workout rows with no sets logged (abandoned sessions) — they
+      // would reset the recovery clock and skew the rest/routine scores
+      const loggedIds = new Set(sets.map(st => st.workout_id));
+      const wkts    = (workoutsRes.data || []).filter(w => loggedIds.has(w.id));
       const calLogs = calLogsRes.data  || [];
 
       setProfile(prof);
@@ -767,6 +770,9 @@ export default function HomeScreen({ navigation }) {
   const firstName = profile?.name?.split(' ')[0] || null;
   const readiness = calcReadiness(hoursSince);
   const optimal   = readiness >= 0.87;
+  // Clear to train once Mentzer's day-4 minimum is reached (recoveryStatus.readyToTrain)
+  // or at peak readiness; only warn while genuinely still recovering
+  const clearToTrain = neverTrained || optimal || !!recoveryStatus?.readyToTrain;
   const readyIn   = fmtReadyIn(hoursSince);
 
   // Header computed values — only count workouts with at least one set logged
@@ -806,7 +812,7 @@ export default function HomeScreen({ navigation }) {
   const goalLabel  = GOAL_LABEL[profile?.goal] || null;
 
   const handleStart = () => {
-    if (optimal || neverTrained) { navigation.navigate('Workout'); return; }
+    if (clearToTrain) { navigation.navigate('Workout'); return; }
     setWarnReadiness(readiness);
     setShowWarning(true);
   };
@@ -859,9 +865,9 @@ export default function HomeScreen({ navigation }) {
           <Button
             title="START WORKOUT"
             icon="play"
-            variant={optimal || neverTrained ? 'primary' : 'secondary'}
+            variant={clearToTrain ? 'primary' : 'secondary'}
             onPress={handleStart}
-            hint={optimal || neverTrained ? undefined : 'You are still recovering. A warning will be shown first.'}
+            hint={clearToTrain ? undefined : 'You are still recovering. A warning will be shown first.'}
             style={{ marginTop: SPACING.lg }}
           />
         </View>

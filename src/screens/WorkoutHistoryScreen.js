@@ -7,6 +7,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import Card from '../components/Card';
+import { useUnits, kgToDisplay } from '../lib/units';
 import ScreenHeader from '../components/ScreenHeader';
 import { COLORS, FONT, TYPE, RADIUS, SPACING } from '../theme';
 
@@ -50,9 +51,9 @@ const totalVolume = (sets) =>
   sets.reduce((sum, s) => sum + (s.weight_kg * s.reps), 0);
 
 // ─── Workout Card ─────────────────────────────────────────────────────────────
-function WorkoutCard({ item }) {
+function WorkoutCard({ item, imperial, weightUnit }) {
   const [expanded, setExpanded] = useState(true);
-  const vol = totalVolume(item.allSets);
+  const vol = Math.round(kgToDisplay(totalVolume(item.allSets), imperial));
 
   return (
     <Card style={styles.workoutCard}>
@@ -89,9 +90,9 @@ function WorkoutCard({ item }) {
                   <Text
                     key={j}
                     style={styles.setText}
-                    accessibilityLabel={`${s.weight_kg} kilograms for ${s.reps} reps`}
+                    accessibilityLabel={`${kgToDisplay(s.weight_kg, imperial)} ${imperial ? 'pounds' : 'kilograms'} for ${s.reps} reps`}
                   >
-                    {s.weight_kg}<Text style={styles.setUnit}>kg</Text> × {s.reps}
+                    {kgToDisplay(s.weight_kg, imperial)}<Text style={styles.setUnit}>{weightUnit}</Text> × {s.reps}
                   </Text>
                 ))}
               </View>
@@ -102,7 +103,7 @@ function WorkoutCard({ item }) {
 
       <View style={styles.footerRow}>
         <Text style={styles.footerText}>{item.exercises.length} exercise{item.exercises.length === 1 ? '' : 's'}</Text>
-        <Text style={styles.footerText}>{vol.toLocaleString()} kg volume</Text>
+        <Text style={styles.footerText}>{vol.toLocaleString()} {weightUnit} volume</Text>
       </View>
     </Card>
   );
@@ -113,6 +114,7 @@ export default function WorkoutHistoryScreen() {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const { imperial, weightUnit } = useUnits();
 
   useFocusEffect(
     useCallback(() => {
@@ -201,7 +203,8 @@ export default function WorkoutHistoryScreen() {
         <FlatList
           data={history}
           keyExtractor={item => String(item.id)}
-          renderItem={({ item }) => <WorkoutCard item={item} />}
+          renderItem={({ item }) => <WorkoutCard item={item} imperial={imperial} weightUnit={weightUnit} />}
+          extraData={imperial}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.gold} />}

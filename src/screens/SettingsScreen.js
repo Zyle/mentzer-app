@@ -6,6 +6,7 @@ import {
 import { Feather } from '@expo/vector-icons';
 import Button from '../components/Button';
 import ScreenHeader from '../components/ScreenHeader';
+import { useUnits, kgToDisplay } from '../lib/units';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { supabase } from '../lib/supabase';
@@ -38,7 +39,7 @@ export default function SettingsScreen({ navigation }) {
   const [savingGoal, setSavingGoal]       = useState(false);
 
   // Units + increment
-  const [units, setUnits]                 = useState('metric');
+  const { units, setUnits }               = useUnits();
   const [increment, setIncrement]         = useState(2.5);
 
   // Notifications
@@ -69,9 +70,7 @@ export default function SettingsScreen({ navigation }) {
 
       if (profile?.goal) setGoal(profile.goal);
 
-      const savedUnits     = await AsyncStorage.getItem('units');
       const savedIncrement = await AsyncStorage.getItem('weightIncrement');
-      setUnits(savedUnits || 'metric');
       setIncrement(savedIncrement ? parseFloat(savedIncrement) : 2.5);
 
       const { status }  = await Notifications.getPermissionsAsync();
@@ -95,8 +94,7 @@ export default function SettingsScreen({ navigation }) {
 
   // ── Units ────────────────────────────────────────────────────────────────────
   const saveUnits = async (newUnits) => {
-    setUnits(newUnits);
-    await AsyncStorage.setItem('units', newUnits);
+    await setUnits(newUnits);
   };
 
   // ── Weight increment ─────────────────────────────────────────────────────────
@@ -234,7 +232,7 @@ export default function SettingsScreen({ navigation }) {
           {INCREMENTS.map((inc, i) => (
             <OptionRow
               key={inc.value}
-              label={inc.label}
+              label={units === 'imperial' ? `${inc.label} (≈${kgToDisplay(inc.value, true)} lb)` : inc.label}
               sub={inc.sub}
               selected={increment === inc.value}
               onPress={() => saveIncrement(inc.value)}

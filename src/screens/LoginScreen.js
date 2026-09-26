@@ -18,6 +18,10 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  // Password reset: 'request' (enter email) → 'verify' (enter emailed code + new password)
+  const [resetStep, setResetStep] = useState(null);
+  const [code, setCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
   const passwordRef = useRef(null);
 
   const handleAuth = async () => {
@@ -46,6 +50,37 @@ export default function LoginScreen() {
 
   const switchMode = () => { setIsSignUp(v => !v); setError(''); setNotice(''); };
 
+  const startReset = () => { setResetStep('request'); setIsSignUp(false); setError(''); setNotice(''); };
+  const cancelReset = () => { setResetStep(null); setCode(''); setNewPassword(''); setError(''); setNotice(''); };
+
+  const requestReset = async () => {
+    setError(''); setNotice('');
+    if (!email.trim()) { setError('Enter the email you signed up with.'); return; }
+    setLoading(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim());
+    setLoading(false);
+    if (error) { setError(error.message); return; }
+    setResetStep('verify');
+    setNotice(`If an account exists for ${email.trim()}, we've emailed it a reset code.`);
+  };
+
+  const confirmReset = async () => {
+    setError(''); setNotice('');
+    if (!code.trim()) { setError('Enter the code from the email.'); return; }
+    if (newPassword.length < 6) { setError('New password must be at least 6 characters.'); return; }
+    setLoading(true);
+    try {
+      // Verifying the code signs the user in; then set the new password.
+      const { error: otpError } = await supabase.auth.verifyOtp({ email: email.trim(), token: code.trim(), type: 'recovery' });
+      if (otpError) throw otpError;
+      const { error: pwError } = await supabase.auth.updateUser({ password: newPassword });
+      if (pwError) throw pwError;
+    } catch (e) {
+      setError(e.message);
+      setLoading(false);
+    }
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -66,6 +101,16 @@ export default function LoginScreen() {
         </Text>
 
         <View style={styles.form}>
+          {resetStep && (
+            <>
+              <Text style={styles.resetTitle} accessibilityRole="header">Reset password</Text>
+              <Text style={styles.resetBody}>
+                {resetStep === 'request'
+                  ? "Enter your email and we'll send you a code to set a new password."
+                  : 'Enter the code from the email and choose a new password.'}
+              </Text>
+            </>
+          )}
           <Text style={styles.label} nativeID="emailLabel">Email</Text>
           <TextInput
             style={styles.input}
@@ -78,12 +123,45 @@ export default function LoginScreen() {
             autoCorrect={false}
             autoComplete="email"
             textContentType="emailAddress"
-            returnKeyType="next"
-            onSubmitEditing={() => passwordRef.current?.focus()}
+            returnKeyType={resetStep === 'request' ? 'send' : 'next'}
+            onSubmitEditing={() => (resetStep === 'request' ? requestReset() : passwordRef.current?.focus())}
+            editable={resetStep !== 'verify'}
             accessibilityLabelledBy="emailLabel"
             accessibilityLabel="Email"
           />
 
+          {resetStep === 'verify' && (
+            <>
+              <Text style={styles.label}>Reset code</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="6-digit code"
+                placeholderTextColor={COLORS.textFaint}
+                value={code}
+                onChangeText={setCode}
+                keyboardType="number-pad"
+                autoComplete="one-time-code"
+                textContentType="oneTimeCode"
+                accessibilityLabel="Reset code from email"
+              />
+              <Text style={styles.label}>New password</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="At least 6 characters"
+                placeholderTextColor={COLORS.textFaint}
+                value={newPassword}
+                onChangeText={setNewPassword}
+                secureTextEntry
+                autoComplete="new-password"
+                textContentType="newPassword"
+                returnKeyType="go"
+                onSubmitEditing={confirmReset}
+                accessibilityLabel="New password"
+              />
+            </>
+          )}
+
+          {!resetStep && (<>
           <Text style={styles.label} nativeID="passwordLabel">Password</Text>
           <View style={styles.passwordRow}>
             <TextInput
@@ -111,6 +189,18 @@ export default function LoginScreen() {
             </Pressable>
           </View>
 
+          {!isSignUp && (
+            <Pressable
+              onPress={startReset}
+              style={styles.forgot}
+              accessibilityRole="button"
+              accessibilityLabel="Forgot password?"
+            >
+              <Text style={styles.forgotText}>Forgot password?</Text>
+            </Pressable>
+          )}
+          </>)}
+
           {error ? (
             <View style={[styles.msg, styles.msgError]} accessibilityLiveRegion="polite" accessibilityRole="alert">
               <Feather name="alert-circle" size={15} color={COLORS.red} />
@@ -124,14 +214,29 @@ export default function LoginScreen() {
             </View>
           ) : null}
 
+          {resetStep ? (
+            <>
+              <Button
+                title={resetStep === 'request' ? 'SEND CODE' : 'SET NEW PASSWORD'}
+                onPress={resetStep === 'request' ? requestReset : confirmReset}
+                loading={loading}
+                style={{ marginTop: SPACING.lg }}
+              />
+              {resetStep === 'verify' && (
+                <Button title="Resend code" variant="ghost" size="md" onPress={requestReset} style={{ marginTop: SPACING.sm }} />
+              )}
+              <Button title="Back to sign in" variant="ghost" size="md" onPress={cancelReset} style={{ marginTop: SPACING.xs }} />
+            </>
+          ) : (
           <Button
             title={isSignUp ? 'CREATE ACCOUNT' : 'SIGN IN'}
             onPress={handleAuth}
             loading={loading}
             style={{ marginTop: SPACING.lg }}
           />
+          )}
 
-          <Pressable
+          {!resetStep && <Pressable
             style={styles.switchButton}
             onPress={switchMode}
             accessibilityRole="button"
@@ -141,7 +246,7 @@ export default function LoginScreen() {
               {isSignUp ? 'Already have an account? ' : 'No account yet? '}
               <Text style={styles.switchTextHighlight}>{isSignUp ? 'Sign in' : 'Create one'}</Text>
             </Text>
-          </Pressable>
+          </Pressable>}
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -173,6 +278,10 @@ const styles = StyleSheet.create({
   },
   passwordInput: { flex: 1, color: COLORS.white, paddingHorizontal: 16, minHeight: 52, fontSize: 16 },
   eyeBtn:        { width: HIT + 4, height: 52, alignItems: 'center', justifyContent: 'center' },
+  forgot:        { alignSelf: 'flex-end', minHeight: HIT, justifyContent: 'center', paddingLeft: 12 },
+  forgotText:    { color: COLORS.gold, fontSize: 14, fontWeight: FONT.medium },
+  resetTitle:    { ...TYPE.title, color: COLORS.white, marginBottom: 6 },
+  resetBody:     { ...TYPE.callout, color: COLORS.textMuted, marginBottom: SPACING.sm },
 
   msg:      { flexDirection: 'row', gap: 8, alignItems: 'flex-start', borderRadius: RADIUS.md, padding: 12, marginTop: SPACING.md },
   msgError: { backgroundColor: COLORS.redFaint },

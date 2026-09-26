@@ -11,6 +11,8 @@ import Button from '../components/Button';
 import ScreenHeader from '../components/ScreenHeader';
 import SectionTitle from '../components/SectionTitle';
 import CalorieSlider from '../components/CalorieSlider';
+import { SURPLUS_RANGE, DEFICIT_RANGE } from '../data/calorieRanges';
+import { useUnits, kgToDisplay, displayToKg, cmToFtIn, ftInToCm } from '../lib/units';
 import { COLORS, FONT, TYPE, RADIUS, SPACING, HIT } from '../theme';
 
 export default function ProfileScreen({ navigation }) {
@@ -19,6 +21,9 @@ export default function ProfileScreen({ navigation }) {
   const [saving, setSaving] = useState(false);
   const [bodyweight, setBodyweight] = useState('');
   const [height, setHeight] = useState('');
+  const [heightFt, setHeightFt] = useState('');
+  const [heightIn, setHeightIn] = useState('');
+  const { imperial, weightUnit, fmtHeight } = useUnits();
   const [age, setAge] = useState('');
   const [name, setName] = useState('');
   const [calorieAdjustment, setCalorieAdjustment] = useState(0);
@@ -34,8 +39,6 @@ export default function ProfileScreen({ navigation }) {
       const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
       if (data) {
         setProfile(data);
-        setBodyweight(data.bodyweight_kg?.toString() || '');
-        setHeight(data.height_cm?.toString() || '');
         setAge(data.age?.toString() || '');
         setName(data.name || '');
         setCalorieAdjustment(Math.abs(data.calorie_adjustment || 0));
@@ -43,6 +46,24 @@ export default function ProfileScreen({ navigation }) {
     } catch (e) {
       console.error('ProfileScreen loadData error:', e);
     }
+  };
+
+  // Fill the edit form in the user's chosen units
+  const startEditing = () => {
+    const w = kgToDisplay(profile?.bodyweight_kg, imperial);
+    setBodyweight(w != null ? String(w) : '');
+    if (profile?.height_cm) {
+      const { ft, inches } = cmToFtIn(profile.height_cm);
+      setHeightFt(String(ft));
+      setHeightIn(String(inches));
+      setHeight(String(profile.height_cm));
+    } else {
+      setHeightFt(''); setHeightIn(''); setHeight('');
+    }
+    // Keep a saved adjustment inside the slider's range (older accounts may exceed it)
+    const range = profile?.goal === 'bulk' ? SURPLUS_RANGE : DEFICIT_RANGE;
+    setCalorieAdjustment(v => Math.min(Math.max(v, range.min), range.max));
+    setEditing(true);
   };
 
   const saveProfile = async () => {
@@ -58,8 +79,8 @@ export default function ProfileScreen({ navigation }) {
       const { error } = await supabase.from('profiles').upsert({
         id: user.id,
         name,
-        bodyweight_kg: parseFloat(bodyweight) || null,
-        height_cm: parseFloat(height) || null,
+        bodyweight_kg: displayToKg(bodyweight, imperial) || null,
+        height_cm: (imperial ? (heightFt || heightIn ? ftInToCm(heightFt, heightIn) : null) : parseFloat(height)) || null,
         age: parseInt(age) || null,
         calorie_adjustment: signedAdjustment,
         last_weight_checkin: new Date().toISOString(),
@@ -144,10 +165,17 @@ export default function ProfileScreen({ navigation }) {
               <Text style={styles.editTitle} accessibilityRole="header">Edit profile</Text>
               <LabeledInput label="Name" value={name} onChangeText={setName} placeholder="Your name" autoComplete="name" />
               <View style={styles.inputRow}>
-                <LabeledInput label="Weight" unit="kg" value={bodyweight} onChangeText={setBodyweight} keyboardType="decimal-pad" placeholder="80" style={{ flex: 1 }} />
-                <LabeledInput label="Height" unit="cm" value={height} onChangeText={setHeight} keyboardType="decimal-pad" placeholder="175" style={{ flex: 1 }} />
+                <LabeledInput label="Weight" unit={weightUnit} value={bodyweight} onChangeText={setBodyweight} keyboardType="decimal-pad" placeholder={imperial ? '176' : '80'} style={{ flex: 1 }} />
                 <LabeledInput label="Age" value={age} onChangeText={setAge} keyboardType="number-pad" placeholder="30" style={{ flex: 0.8 }} />
               </View>
+              {imperial ? (
+                <View style={styles.inputRow}>
+                  <LabeledInput label="Height" unit="ft" value={heightFt} onChangeText={setHeightFt} keyboardType="number-pad" placeholder="5" style={{ flex: 1 }} />
+                  <LabeledInput label="Height" unit="in" value={heightIn} onChangeText={setHeightIn} keyboardType="number-pad" placeholder="11" style={{ flex: 1 }} />
+                </View>
+              ) : (
+                <LabeledInput label="Height" unit="cm" value={height} onChangeText={setHeight} keyboardType="decimal-pad" placeholder="175" />
+              )}
 
               {profile?.goal !== 'maintain' && profile?.goal !== 'recomp' && profile?.goal && (
                 <>
@@ -156,9 +184,9 @@ export default function ProfileScreen({ navigation }) {
                   </Text>
                   <CalorieSlider
                     value={calorieAdjustment}
-                    min={profile.goal === 'bulk' ? 50 : 100}
-                    max={profile.goal === 'bulk' ? 300 : 500}
-                    step={50}
+                    min={(profile.goal === 'bulk' ? SURPLUS_RANGE : DEFICIT_RANGE).min}
+                    max={(profile.goal === 'bulk' ? SURPLUS_RANGE : DEFICIT_RANGE).max}
+                    step={(profile.goal === 'bulk' ? SURPLUS_RANGE : DEFICIT_RANGE).step}
                     onChange={setCalorieAdjustment}
                     onDragStart={() => setScrollEnabled(false)}
                     onDragEnd={() => setScrollEnabled(true)}
@@ -170,14 +198,14 @@ export default function ProfileScreen({ navigation }) {
                       <View style={styles.predictionRow}>
                         <View style={styles.predictionStat}>
                           <Text style={styles.predictionValue}>
-                            ~{((calorieAdjustment * 7) / 7700).toFixed(2)}kg
+                            ~{(((calorieAdjustment * 7) / 7700) * (imperial ? 2.20462 : 1)).toFixed(2)}{weightUnit}
                           </Text>
                           <Text style={styles.predictionLabel}>PER WEEK</Text>
                         </View>
                         <View style={styles.predictionDivider} />
                         <View style={styles.predictionStat}>
                           <Text style={styles.predictionValue}>
-                            ~{((calorieAdjustment * 30) / 7700).toFixed(1)}kg
+                            ~{kgToDisplay((calorieAdjustment * 30) / 7700, imperial)}{weightUnit}
                           </Text>
                           <Text style={styles.predictionLabel}>PER MONTH</Text>
                         </View>
@@ -205,12 +233,16 @@ export default function ProfileScreen({ navigation }) {
                   <Text style={styles.profileName} numberOfLines={1}>{profile?.name || 'Athlete'}</Text>
                   {profile?.email ? <Text style={styles.profileEmail} numberOfLines={1}>{profile.email}</Text> : null}
                 </View>
-                <Button title="Edit" variant="secondary" size="md" icon="edit-2" onPress={() => setEditing(true)} hint="Edit your name, body stats and calorie adjustment" />
+                <Button title="Edit" variant="secondary" size="md" icon="edit-2" onPress={startEditing} hint="Edit your name, body stats and calorie adjustment" />
               </View>
 
               <View style={styles.profileStats}>
-                <Stat value={profile?.bodyweight_kg ? `${profile.bodyweight_kg}` : '—'} unit="kg" label="Weight" />
-                <Stat value={profile?.height_cm ? `${profile.height_cm}` : '—'} unit="cm" label="Height" />
+                <Stat value={profile?.bodyweight_kg ? `${kgToDisplay(profile.bodyweight_kg, imperial)}` : '—'} unit={weightUnit} label="Weight" />
+                <Stat
+                  value={profile?.height_cm ? (imperial ? fmtHeight(profile.height_cm) : `${profile.height_cm}`) : '—'}
+                  unit={imperial ? undefined : 'cm'}
+                  label="Height"
+                />
                 <Stat value={profile?.age ? `${profile.age}` : '—'} label="Age" />
                 <Stat value={getExperienceLabel()} label="Level" small />
               </View>

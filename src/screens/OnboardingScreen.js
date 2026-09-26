@@ -7,6 +7,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import CalorieSlider from '../components/CalorieSlider';
+import { SURPLUS_RANGE, DEFICIT_RANGE } from '../data/calorieRanges';
+import { setUnits } from '../lib/units';
 import Button from '../components/Button';
 import { COLORS, FONT, TYPE, RADIUS, SPACING, HIT } from '../theme';
 
@@ -73,8 +75,8 @@ const ftInToCm  = (ft, inches) =>
 const STEPS = ['welcome', 'personal', 'body', 'goal', 'calories', 'experience', 'summary'];
 
 const BULK_ZONES = [
-  { label: 'CONSERVATIVE', color: COLORS.green },
-  { label: 'MODERATE',     color: COLORS.gold  },
+  { label: 'MENTZER METHOD', color: COLORS.green },
+  { label: 'MODERATE',       color: COLORS.gold  },
   { label: 'AGGRESSIVE',   color: COLORS.red   },
 ];
 const CUT_ZONES = [
@@ -104,7 +106,7 @@ export default function OnboardingScreen({ onComplete }) {
 
   // Goal / calories / experience
   const [goal, setGoal]                       = useState('');
-  const [calorieAdjustment, setCalorieAdjustment] = useState(150);
+  const [calorieAdjustment, setCalorieAdjustment] = useState(SURPLUS_RANGE.default);
   const [experience, setExperience]           = useState('');
   const [saving, setSaving]                   = useState(false);
   const [scrollEnabled, setScrollEnabled]     = useState(true);
@@ -179,8 +181,8 @@ export default function OnboardingScreen({ onComplete }) {
   // ── Goal selection ────────────────────────────────────────────────────────
   const selectGoal = (g) => {
     setGoal(g);
-    if (g === 'bulk') setCalorieAdjustment(150);
-    else if (g === 'cut') setCalorieAdjustment(300);
+    if (g === 'bulk') setCalorieAdjustment(SURPLUS_RANGE.default);
+    else if (g === 'cut') setCalorieAdjustment(DEFICIT_RANGE.default);
     else setCalorieAdjustment(0);
   };
 
@@ -223,6 +225,7 @@ export default function OnboardingScreen({ onComplete }) {
   // ── Save ─────────────────────────────────────────────────────────────────
   const saveProfile = async () => {
     setSaving(true);
+    setUnits(imperial ? 'imperial' : 'metric'); // carry the unit choice into the app
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
@@ -436,16 +439,16 @@ export default function OnboardingScreen({ onComplete }) {
           <View>
             <Text style={styles.title} accessibilityRole="header">Set your surplus</Text>
             <Text style={styles.subtitle}>
-              Extra calories per day above your maintenance of {tdee} kcal. Mentzer's point: muscle is built slowly, so the surplus you need is small.
+              Extra calories per day above your maintenance of {tdee} kcal. Mentzer's own figure is about 16 kcal a day: enough for roughly 10 lb of muscle a year. More than that mostly adds fat.
             </Text>
             <View style={styles.sliderCard}>
               <CalorieSlider
                 onDragStart={() => setScrollEnabled(false)}
                 onDragEnd={() => setScrollEnabled(true)}
                 value={calorieAdjustment}
-                min={50}
-                max={300}
-                step={50}
+                min={SURPLUS_RANGE.min}
+                max={SURPLUS_RANGE.max}
+                step={SURPLUS_RANGE.step}
                 onChange={setCalorieAdjustment}
                 color={COLORS.gold}
                 zones={BULK_ZONES}
@@ -472,9 +475,9 @@ export default function OnboardingScreen({ onComplete }) {
                 onDragStart={() => setScrollEnabled(false)}
                 onDragEnd={() => setScrollEnabled(true)}
                 value={calorieAdjustment}
-                min={100}
-                max={500}
-                step={50}
+                min={DEFICIT_RANGE.min}
+                max={DEFICIT_RANGE.max}
+                step={DEFICIT_RANGE.step}
                 onChange={setCalorieAdjustment}
                 color={COLORS.red}
                 zones={CUT_ZONES}

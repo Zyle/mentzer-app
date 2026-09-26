@@ -9,6 +9,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as NavigationBar from 'expo-navigation-bar';
 import { supabase } from './src/lib/supabase';
 import { registerForPushNotifications } from './src/lib/notifications';
+import { saveRoutineType } from './src/lib/programme';
 import ErrorBoundary from './src/components/ErrorBoundary';
 import { COLORS, FONT } from './src/theme';
 
@@ -206,11 +207,7 @@ function AppContent() {
     // Save the chosen programme type to the profile
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (user && selectedProgramme) {
-        await supabase.from('profiles')
-          .update({ routine_type: selectedProgramme })
-          .eq('id', user.id);
-      }
+      await saveRoutineType(user?.id, selectedProgramme);
     } catch (_) {}
     setNeedsRoutine(false);
   };

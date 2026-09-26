@@ -1,9 +1,11 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
   }),
@@ -32,6 +34,26 @@ export async function registerForPushNotifications() {
 }
 
 // ── Recovery notifications ────────────────────────────────────────────────────
+// Preference persists so turning alerts off in Settings survives future workouts.
+const RECOVERY_PREF_KEY = 'recoveryAlertsEnabled';
+
+export async function setRecoveryNotificationsEnabled(enabled) {
+  try { await AsyncStorage.setItem(RECOVERY_PREF_KEY, enabled ? 'true' : 'false'); } catch (_) {}
+  if (!enabled) await cancelRecoveryNotifications();
+}
+
+export async function areRecoveryNotificationsEnabled() {
+  try { return (await AsyncStorage.getItem(RECOVERY_PREF_KEY)) !== 'false'; } catch (_) { return true; }
+}
+
+// Called when a workout finishes. Skips scheduling if the user turned alerts off.
+export async function scheduleRecoveryNotificationsIfEnabled() {
+  if (!(await areRecoveryNotificationsEnabled())) return;
+  const { status } = await Notifications.getPermissionsAsync();
+  if (status !== 'granted') return;
+  await scheduleRecoveryNotifications();
+}
+
 export async function scheduleRecoveryNotifications() {
   await Notifications.cancelScheduledNotificationAsync('recovery-day4').catch(() => {});
   await Notifications.cancelScheduledNotificationAsync('recovery-peak').catch(() => {});
@@ -46,7 +68,7 @@ export async function scheduleRecoveryNotifications() {
       sound: true,
       data: { type: 'recovery' },
     },
-    trigger: { type: 'date', date: new Date(now + 96 * 3_600_000) },
+    trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: new Date(now + 96 * 3_600_000) },
   });
 
   await Notifications.scheduleNotificationAsync({
@@ -57,7 +79,7 @@ export async function scheduleRecoveryNotifications() {
       sound: true,
       data: { type: 'recovery' },
     },
-    trigger: { type: 'date', date: new Date(now + 132 * 3_600_000) },
+    trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: new Date(now + 132 * 3_600_000) },
   });
 }
 
@@ -79,6 +101,7 @@ export async function scheduleWeightCheckinReminder() {
       data: { type: 'checkin' },
     },
     trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
       seconds: 14 * 24 * 60 * 60, // 14 days
       repeats: true,
     },

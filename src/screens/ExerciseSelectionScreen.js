@@ -4,6 +4,7 @@ import {
   TouchableOpacity, Alert,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
+import { saveProgramme } from '../lib/programme';
 import { COLORS, FONT, RADIUS, SPACING } from '../theme';
 
 // ─── Tier styles ──────────────────────────────────────────────────────────────
@@ -289,8 +290,10 @@ export default function ExerciseSelectionScreen({ onComplete, onBack }) {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const routine = [...Object.values(compounds).filter(Boolean), ...Array.from(isolation)];
-      if (user) {
-        await supabase.from('profiles').update({ routine }).eq('id', user.id);
+      const { error } = await saveProgramme(user?.id, routine, null);
+      if (error) {
+        Alert.alert('Could not save routine', 'Check your connection and try again.');
+        return;
       }
       onComplete();
     } catch (_) {

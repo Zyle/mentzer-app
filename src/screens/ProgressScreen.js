@@ -1,8 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
-import { analyzeSet } from '../lib/progression';
-import { EXERCISES } from '../data/exercises';
+import { getNextTarget, setsByExercise, bestOf } from '../lib/progression';
+import { findExercise, canonicalName } from '../data/exercises';
+import { loadProgramme } from '../lib/programme';
 import Card from '../components/Card';
 import ScreenHeader from '../components/ScreenHeader';
 import { COLORS, FONT, RADIUS, SPACING } from '../theme';
@@ -12,38 +15,58 @@ export default function ProgressScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => { loadData(); }, []);
+  // Reload every time the tab is focused so targets reflect the latest workout
+  useFocusEffect(useCallback(() => { loadData(); }, []));
 
   const loadData = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      const { data: bests } = await supabase
-        .from('personal_bests').select('*')
-        .eq('user_id', user.id)
-        .order('date', { ascending: false });
+      const [{ data: sets }, prog, savedIncrement] = await Promise.all([
+        supabase.from('sets')
+          .select('exercise_name, weight_kg, reps, date')
+          .eq('user_id', user.id)
+          .order('date', { ascending: false }),
+        loadProgramme(user.id),
+        AsyncStorage.getItem('weightIncrement').catch(() => null),
+      ]);
+      const increment = savedIncrement ? parseFloat(savedIncrement) : 2.5;
 
-      if (bests) {
-        const sessions = bests.map(best => {
-          const exercise = EXERCISES.find(e => e.name === best.exercise_name);
-          if (!exercise) return null;
-          const analysis = analyzeSet(exercise, best.weight_kg, best.reps, null);
-          return {
-            exercise:      best.exercise_name,
-            currentWeight: best.weight_kg,
-            currentReps:   best.reps,
-            nextWeight:    analysis.nextWeight,
-            action:        analysis.action,
-            message:       analysis.message,
-            restDays:      analysis.restDays,
-            date:          best.date,
-            isHD2Core:     exercise.hd2Core,
-          };
-        }).filter(Boolean);
+      // Programme order first (A then B), then anything else logged
+      const order = new Map();
+      prog.sessions.forEach(sess => sess.exercises.forEach(e => {
+        if (!order.has(e.name)) order.set(e.name, order.size);
+      }));
 
-        // HD2 core exercises appear first
-        sessions.sort((a, b) => (b.isHD2Core ? 1 : 0) - (a.isHD2Core ? 1 : 0));
-        setNextSessions(sessions);
-      }
+      const byExercise = setsByExercise(sets || [], canonicalName);
+      const sessions = Object.entries(byExercise).map(([name, list]) => {
+        const exercise = findExercise(name);
+        const target = getNextTarget(exercise, list[0], list[1], increment);
+        if (!target) return null;
+        const best = bestOf(list);
+        return {
+          exercise:      name,
+          currentWeight: target.lastWeight,
+          currentReps:   target.lastReps,
+          nextWeight:    target.weight,
+          repGoal:       target.repGoal,
+          action:        target.action,
+          message:       target.message,
+          progressNote:  target.progressNote,
+          restDays:      target.restDays,
+          date:          target.lastDate,
+          best,
+          isHD2Core:     exercise.hd2Core,
+          inProgramme:   order.has(name),
+        };
+      }).filter(Boolean);
+
+      sessions.sort((a, b) => {
+        const oa = order.has(a.exercise) ? order.get(a.exercise) : Infinity;
+        const ob = order.has(b.exercise) ? order.get(b.exercise) : Infinity;
+        if (oa !== ob) return oa - ob;
+        return (b.isHD2Core ? 1 : 0) - (a.isHD2Core ? 1 : 0);
+      });
+      setNextSessions(sessions);
     } catch (error) {
       console.error('ProgressScreen loadData error:', error);
     } finally {
@@ -67,7 +90,7 @@ export default function ProgressScreen() {
   };
 
   const formatDate = (dateStr) =>
-    new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    dateStr ? new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '—';
 
   return (
     <ScrollView
@@ -84,10 +107,10 @@ export default function ProgressScreen() {
         </View>
       )}
 
-      {nextSessions.map((session, index) => {
+      {nextSessions.map((session) => {
         const actionColor = getActionColor(session.action);
         return (
-          <Card key={index} style={styles.cardSpacing}>
+          <Card key={session.exercise} style={styles.cardSpacing}>
             <View style={styles.sessionHeader}>
               <View style={{ flex: 1 }}>
                 <View style={styles.exerciseNameRow}>
@@ -123,11 +146,19 @@ export default function ProgressScreen() {
                 <Text style={[styles.weightValue, { color: actionColor }]}>
                   {session.nextWeight}<Text style={[styles.weightUnit, { color: actionColor }]}>kg</Text>
                 </Text>
-                <Text style={styles.repsValue}>to failure</Text>
+                <Text style={styles.repsValue}>{session.repGoal}+ reps to failure</Text>
               </View>
             </View>
 
+            {session.progressNote && (
+              <Text style={styles.progressNote}>{session.progressNote}</Text>
+            )}
             <Text style={styles.sessionMessage}>{session.message}</Text>
+            {session.best && (
+              <Text style={styles.bestLine}>
+                Best: {session.best.weight_kg}kg × {session.best.reps} reps
+              </Text>
+            )}
             <View style={styles.restBadge}>
               <Text style={styles.restBadgeText}>Min rest: {session.restDays} days</Text>
             </View>
@@ -176,4 +207,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 6, alignSelf: 'flex-start', borderWidth: 1, borderColor: COLORS.border,
   },
   restBadgeText: { color: COLORS.textDim, fontSize: 11, fontWeight: FONT.medium },
+  progressNote:  { color: COLORS.white, fontSize: 13, fontWeight: FONT.semibold, marginBottom: 8 },
+  bestLine:      { color: COLORS.textDim, fontSize: 12, marginBottom: 12 },
 });

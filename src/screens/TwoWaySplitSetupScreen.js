@@ -4,6 +4,7 @@ import {
   TouchableOpacity, Alert, Animated,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
+import { saveProgramme } from '../lib/programme';
 import { COLORS, FONT, RADIUS, SPACING } from '../theme';
 
 // ─── Workout definitions ──────────────────────────────────────────────────────
@@ -271,14 +272,14 @@ export default function TwoWaySplitSetupScreen({ onComplete, onBack }) {
         .map(ex => ex.fixed ? ex.default : lowerChoices[ex.key])
         .filter(Boolean);
 
-      if (user) {
-        await supabase.from('profiles').update({
-          routine:      [...upperList, ...lowerList],
-          routine_type: 'two_way_split',
-        }).eq('id', user.id);
+      const { error } = await saveProgramme(user?.id, [...upperList, ...lowerList], 'two_way');
+      if (error) {
+        Alert.alert('Could not save routine', 'Check your connection and try again.');
+        return;
       }
       onComplete();
     } catch (_) {
+      // In dev mode there's no real user — just proceed
       onComplete();
     } finally {
       setSaving(false);

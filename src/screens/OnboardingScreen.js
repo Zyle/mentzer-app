@@ -1,11 +1,16 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity,
-  TextInput, ScrollView, Alert,
+  View, Text, StyleSheet, Pressable,
+  TextInput, ScrollView, KeyboardAvoidingView, Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import CalorieSlider from '../components/CalorieSlider';
-import { COLORS, FONT, RADIUS, SPACING } from '../theme';
+import { SURPLUS_RANGE, DEFICIT_RANGE } from '../data/calorieRanges';
+import { setUnits } from '../lib/units';
+import Button from '../components/Button';
+import { COLORS, FONT, TYPE, RADIUS, SPACING, HIT } from '../theme';
 
 // ─── Weight loss prediction card ─────────────────────────────────────────────
 function WeightLossPrediction({ deficit, imperial }) {
@@ -33,7 +38,7 @@ function WeightLossPrediction({ deficit, imperial }) {
       {deficit >= 400 && (
         <View style={predStyles.warning}>
           <Text style={predStyles.warningText}>
-            ⚠️  Deficits above 400 cal/day risk muscle loss. Keep training intensity high and protein intake up.
+            Deficits above 400 kcal/day risk muscle loss. Keep training intensity high and protein intake up.
           </Text>
         </View>
       )}
@@ -49,11 +54,11 @@ const predStyles = StyleSheet.create({
   },
   row:     { flexDirection: 'row', alignItems: 'center' },
   stat:    { flex: 1, alignItems: 'center' },
-  value:   { color: COLORS.white, fontSize: 26, fontWeight: FONT.black },
-  label:   { color: COLORS.textDim, fontSize: 9, letterSpacing: 2, fontWeight: FONT.semibold, marginTop: 4 },
+  value:   { color: COLORS.white, fontSize: 26, fontWeight: FONT.black, fontVariant: ['tabular-nums'] },
+  label:   { color: COLORS.textMuted, fontSize: 11, letterSpacing: 1.5, fontWeight: FONT.semibold, marginTop: 4 },
   divider: { width: 1, height: 40, backgroundColor: COLORS.border, marginHorizontal: 16 },
   warning: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: COLORS.border },
-  warningText: { color: COLORS.orange, fontSize: 12, lineHeight: 18 },
+  warningText: { color: COLORS.orange, fontSize: 13, lineHeight: 19 },
 });
 
 // ─── Unit conversion helpers ──────────────────────────────────────────────────
@@ -70,8 +75,8 @@ const ftInToCm  = (ft, inches) =>
 const STEPS = ['welcome', 'personal', 'body', 'goal', 'calories', 'experience', 'summary'];
 
 const BULK_ZONES = [
-  { label: 'CONSERVATIVE', color: COLORS.green },
-  { label: 'MODERATE',     color: COLORS.gold  },
+  { label: 'MENTZER METHOD', color: COLORS.green },
+  { label: 'MODERATE',       color: COLORS.gold  },
   { label: 'AGGRESSIVE',   color: COLORS.red   },
 ];
 const CUT_ZONES = [
@@ -82,7 +87,9 @@ const CUT_ZONES = [
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 export default function OnboardingScreen({ onComplete }) {
+  const insets = useSafeAreaInsets();
   const [step, setStep] = useState(0);
+  const [error, setError] = useState('');
 
   // Personal
   const [name, setName]   = useState('');
@@ -99,7 +106,7 @@ export default function OnboardingScreen({ onComplete }) {
 
   // Goal / calories / experience
   const [goal, setGoal]                       = useState('');
-  const [calorieAdjustment, setCalorieAdjustment] = useState(150);
+  const [calorieAdjustment, setCalorieAdjustment] = useState(SURPLUS_RANGE.default);
   const [experience, setExperience]           = useState('');
   const [saving, setSaving]                   = useState(false);
   const [scrollEnabled, setScrollEnabled]     = useState(true);
@@ -136,35 +143,37 @@ export default function OnboardingScreen({ onComplete }) {
   // ── Navigation ────────────────────────────────────────────────────────────
   const next = () => {
     if (step === 0 && !name.trim()) {
-      Alert.alert('Required', 'Please enter your name.');
+      setError('Please enter your name.');
       return;
     }
     if (step === 1 && (!age || !sex)) {
-      Alert.alert('Required', 'Please enter your age and select your sex.');
+      setError('Please enter your age and select your sex.');
       return;
     }
     if (step === 2) {
       const hOk = imperial ? (heightFt !== '') : (heightCm !== '');
       const wOk = imperial ? (weightLbs !== '') : (weightKg !== '');
       if (!hOk || !wOk) {
-        Alert.alert('Required', 'Please enter your height and weight.');
+        setError('Please enter your height and weight.');
         return;
       }
     }
     if (step === 3 && !goal) {
-      Alert.alert('Required', 'Please select your goal.');
+      setError('Please select your goal.');
       return;
     }
     if (step === 5 && !experience) {
-      Alert.alert('Required', 'Please select your experience level.');
+      setError('Please select your experience level.');
       return;
     }
     // skip calorie step for maintain
+    setError('');
     if (step === 3 && goal === 'maintain') { setStep(5); return; }
     setStep(s => s + 1);
   };
 
   const back = () => {
+    setError('');
     if (step === 5 && goal === 'maintain') { setStep(3); return; }
     setStep(s => s - 1);
   };
@@ -172,8 +181,8 @@ export default function OnboardingScreen({ onComplete }) {
   // ── Goal selection ────────────────────────────────────────────────────────
   const selectGoal = (g) => {
     setGoal(g);
-    if (g === 'bulk') setCalorieAdjustment(150);
-    else if (g === 'cut') setCalorieAdjustment(300);
+    if (g === 'bulk') setCalorieAdjustment(SURPLUS_RANGE.default);
+    else if (g === 'cut') setCalorieAdjustment(DEFICIT_RANGE.default);
     else setCalorieAdjustment(0);
   };
 
@@ -202,20 +211,21 @@ export default function OnboardingScreen({ onComplete }) {
   };
 
   const getGoalLabel = () => {
-    if (goal === 'bulk') return 'Muscle Gain';
-    if (goal === 'cut')  return 'Fat Loss';
-    return 'Recomp / Maintain';
+    if (goal === 'bulk') return 'Build muscle';
+    if (goal === 'cut')  return 'Lose fat';
+    return 'Recomp / maintain';
   };
 
   const getExperienceDescription = () => {
-    if (experience === 'beginner')     return 'HD2: 1 set to failure, 4+ days rest between sessions';
-    if (experience === 'intermediate') return 'HD2: Consolidated routine, 4-6 days rest';
-    return 'HD2: Squats, Dips, Deadlifts — up to 7 days rest';
+    if (experience === 'beginner')     return '1 set to failure per exercise · 4+ days rest';
+    if (experience === 'intermediate') return 'Full Heavy Duty protocol · 4–6 days rest';
+    return 'Squats, dips, deadlifts · up to 7 days rest';
   };
 
   // ── Save ─────────────────────────────────────────────────────────────────
   const saveProfile = async () => {
     setSaving(true);
+    setUnits(imperial ? 'imperial' : 'metric'); // carry the unit choice into the app
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
@@ -247,240 +257,237 @@ export default function OnboardingScreen({ onComplete }) {
   const proteinTarget = getWeightKg() ? Math.round(getWeightKg() * 0.8) : null;
 
   // ── Render ────────────────────────────────────────────────────────────────
+  const visibleSteps = goal === 'maintain' ? STEPS.filter(s => s !== 'calories') : STEPS;
+  const stepIndex    = visibleSteps.indexOf(STEPS[step]);
+
   return (
-    <View style={styles.container}>
-      {/* Progress dots */}
-      <View style={styles.progressBar}>
-        {STEPS.map((_, i) => (
-          <View key={i} style={[styles.dot, i <= step && styles.dotActive]} />
-        ))}
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      {/* Top bar — back + progress */}
+      <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
+        <View style={styles.topRow}>
+          {step > 0 ? (
+            <Pressable
+              onPress={back}
+              style={styles.backBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Previous step"
+              hitSlop={8}
+            >
+              <Feather name="chevron-left" size={24} color={COLORS.textSecondary} />
+            </Pressable>
+          ) : <View style={styles.backBtn} />}
+          <Text style={styles.stepCount} accessibilityLabel={`Step ${stepIndex + 1} of ${visibleSteps.length}`}>
+            {stepIndex + 1} / {visibleSteps.length}
+          </Text>
+          <View style={styles.backBtn} />
+        </View>
+        <View style={styles.progressTrack} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+          <View style={[styles.progressFill, { width: `${((stepIndex + 1) / visibleSteps.length) * 100}%` }]} />
+        </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" scrollEnabled={scrollEnabled}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        scrollEnabled={scrollEnabled}
+      >
 
         {/* STEP 0 — Welcome */}
         {step === 0 && (
-          <View style={styles.stepContainer}>
+          <View>
             <Text style={styles.logo}>MENTZER</Text>
-            <Text style={styles.logoSub}>HEAVY DUTY METHOD</Text>
-            <Text style={styles.title}>Welcome, Athlete.</Text>
+            <Text style={styles.logoSub}>HEAVY DUTY</Text>
+            <Text style={styles.title} accessibilityRole="header">Welcome.</Text>
             <Text style={styles.subtitle}>
-              Mike Mentzer's Heavy Duty system is the most scientifically rigorous approach to building muscle ever devised. This app will be your coach.
+              Mike Mentzer's Heavy Duty system: brief, intense, infrequent training. One set to failure, then rest while your body grows. This app is your coach.
             </Text>
-            <Text style={styles.fieldLabel}>YOUR NAME</Text>
-            <TextInput
-              style={styles.input}
-              value={name}
-              onChangeText={setName}
-              placeholder="Enter your name"
-              placeholderTextColor={COLORS.textFaint}
-              autoFocus
-            />
+            <Field label="What should we call you?">
+              <TextInput
+                style={styles.input}
+                value={name}
+                onChangeText={t => { setName(t); setError(''); }}
+                placeholder="Your first name"
+                placeholderTextColor={COLORS.textFaint}
+                autoFocus
+                autoComplete="given-name"
+                textContentType="givenName"
+                returnKeyType="next"
+                onSubmitEditing={next}
+                accessibilityLabel="Your name"
+              />
+            </Field>
           </View>
         )}
 
         {/* STEP 1 — Personal */}
         {step === 1 && (
-          <View style={styles.stepContainer}>
-            <Text style={styles.title}>About You</Text>
-            <Text style={styles.subtitle}>Used to calculate your exact calorie and recovery targets.</Text>
+          <View>
+            <Text style={styles.title} accessibilityRole="header">About you</Text>
+            <Text style={styles.subtitle}>Used to calculate your calorie and recovery targets.</Text>
 
-            <Text style={styles.fieldLabel}>AGE</Text>
-            <TextInput
-              style={styles.input}
-              value={age}
-              onChangeText={setAge}
-              keyboardType="number-pad"
-              placeholder="25"
-              placeholderTextColor={COLORS.textFaint}
-            />
+            <Field label="Age">
+              <TextInput
+                style={styles.input}
+                value={age}
+                onChangeText={t => { setAge(t); setError(''); }}
+                keyboardType="number-pad"
+                placeholder="25"
+                placeholderTextColor={COLORS.textFaint}
+                accessibilityLabel="Age in years"
+              />
+            </Field>
 
-            <Text style={styles.fieldLabel}>SEX</Text>
-            <View style={styles.optionRow}>
-              {['male', 'female'].map(s => (
-                <TouchableOpacity
-                  key={s}
-                  style={[styles.optionButton, sex === s && styles.optionButtonActive]}
-                  onPress={() => setSex(s)}
-                >
-                  <Text style={[styles.optionText, sex === s && styles.optionTextActive]}>
-                    {s.toUpperCase()}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+            <Field label="Sex">
+              <View style={styles.optionRow} accessibilityRole="radiogroup">
+                {['male', 'female'].map(sx => (
+                  <Pressable
+                    key={sx}
+                    style={[styles.optionButton, sex === sx && styles.optionButtonActive]}
+                    onPress={() => { setSex(sx); setError(''); }}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: sex === sx }}
+                    accessibilityLabel={sx}
+                  >
+                    <Text style={[styles.optionText, sex === sx && styles.optionTextActive]}>
+                      {sx === 'male' ? 'Male' : 'Female'}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </Field>
           </View>
         )}
 
         {/* STEP 2 — Body */}
         {step === 2 && (
-          <View style={styles.stepContainer}>
-            <View style={styles.stepTitleRow}>
-              <Text style={styles.title}>Your Body</Text>
-              {/* Unit toggle */}
-              <View style={styles.unitToggle}>
-                <TouchableOpacity
-                  style={[styles.unitOption, !imperial && styles.unitOptionActive]}
-                  onPress={() => imperial && toggleUnits()}
-                >
-                  <Text style={[styles.unitOptionText, !imperial && styles.unitOptionTextActive]}>KG / CM</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.unitOption, imperial && styles.unitOptionActive]}
-                  onPress={() => !imperial && toggleUnits()}
-                >
-                  <Text style={[styles.unitOptionText, imperial && styles.unitOptionTextActive]}>LBS / FT</Text>
-                </TouchableOpacity>
-              </View>
+          <View>
+            <Text style={styles.title} accessibilityRole="header">Your body</Text>
+            <Text style={styles.subtitle}>Re-checked every two weeks to keep your targets accurate.</Text>
+
+            <View style={styles.unitToggle} accessibilityRole="radiogroup">
+              {[
+                { key: false, label: 'kg · cm' },
+                { key: true,  label: 'lbs · ft' },
+              ].map(u => {
+                const active = imperial === u.key;
+                return (
+                  <Pressable
+                    key={u.label}
+                    style={[styles.unitOption, active && styles.unitOptionActive]}
+                    onPress={() => !active && toggleUnits()}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: active }}
+                    accessibilityLabel={u.key ? 'Imperial units' : 'Metric units'}
+                  >
+                    <Text style={[styles.unitOptionText, active && styles.unitOptionTextActive]}>{u.label}</Text>
+                  </Pressable>
+                );
+              })}
             </View>
-            <Text style={styles.subtitle}>Your weight will be re-checked every 2 weeks to keep your targets accurate.</Text>
 
-            {/* Height */}
-            <Text style={styles.fieldLabel}>HEIGHT</Text>
-            {imperial ? (
-              <View style={styles.optionRow}>
-                <View style={{ flex: 1 }}>
-                  <TextInput
-                    style={styles.input}
-                    value={heightFt}
-                    onChangeText={setHeightFt}
-                    keyboardType="number-pad"
-                    placeholder="5"
-                    placeholderTextColor={COLORS.textFaint}
-                  />
-                  <Text style={styles.unitHint}>ft</Text>
+            <Field label="Height">
+              {imperial ? (
+                <View style={styles.optionRow}>
+                  <UnitInput value={heightFt} onChangeText={t => { setHeightFt(t); setError(''); }} placeholder="5" unit="ft" keyboardType="number-pad" label="Height, feet" />
+                  <UnitInput value={heightIn} onChangeText={setHeightIn} placeholder="11" unit="in" keyboardType="number-pad" label="Height, inches" />
                 </View>
-                <View style={{ flex: 1 }}>
-                  <TextInput
-                    style={styles.input}
-                    value={heightIn}
-                    onChangeText={setHeightIn}
-                    keyboardType="number-pad"
-                    placeholder="11"
-                    placeholderTextColor={COLORS.textFaint}
-                  />
-                  <Text style={styles.unitHint}>in</Text>
-                </View>
-              </View>
-            ) : (
-              <>
-                <TextInput
-                  style={styles.input}
-                  value={heightCm}
-                  onChangeText={setHeightCm}
-                  keyboardType="decimal-pad"
-                  placeholder="180"
-                  placeholderTextColor={COLORS.textFaint}
-                />
-                <Text style={styles.unitHint}>cm</Text>
-              </>
-            )}
+              ) : (
+                <UnitInput value={heightCm} onChangeText={t => { setHeightCm(t); setError(''); }} placeholder="180" unit="cm" label="Height in centimetres" />
+              )}
+            </Field>
 
-            {/* Weight */}
-            <Text style={[styles.fieldLabel, { marginTop: 20 }]}>WEIGHT</Text>
-            {imperial ? (
-              <>
-                <TextInput
-                  style={styles.input}
-                  value={weightLbs}
-                  onChangeText={setWeightLbs}
-                  keyboardType="decimal-pad"
-                  placeholder="176"
-                  placeholderTextColor={COLORS.textFaint}
-                />
-                <Text style={styles.unitHint}>lbs</Text>
-              </>
-            ) : (
-              <>
-                <TextInput
-                  style={styles.input}
-                  value={weightKg}
-                  onChangeText={setWeightKg}
-                  keyboardType="decimal-pad"
-                  placeholder="80"
-                  placeholderTextColor={COLORS.textFaint}
-                />
-                <Text style={styles.unitHint}>kg</Text>
-              </>
-            )}
+            <Field label="Weight">
+              {imperial ? (
+                <UnitInput value={weightLbs} onChangeText={t => { setWeightLbs(t); setError(''); }} placeholder="176" unit="lbs" label="Weight in pounds" />
+              ) : (
+                <UnitInput value={weightKg} onChangeText={t => { setWeightKg(t); setError(''); }} placeholder="80" unit="kg" label="Weight in kilograms" />
+              )}
+            </Field>
           </View>
         )}
 
         {/* STEP 3 — Goal */}
         {step === 3 && (
-          <View style={styles.stepContainer}>
-            <Text style={styles.title}>Your Goal</Text>
-            <Text style={styles.subtitle}>This determines your calorie target. You can change this anytime.</Text>
+          <View>
+            <Text style={styles.title} accessibilityRole="header">Your goal</Text>
+            <Text style={styles.subtitle}>Sets your calorie target. You can change it any time.</Text>
 
-            {[
-              { key: 'bulk',     label: 'MUSCLE GAIN', desc: "Build maximum muscle with a calorie surplus. You'll set the exact amount on the next screen." },
-              { key: 'maintain', label: 'RECOMP / MAINTAIN', desc: 'Lose fat and build muscle simultaneously. Eat at maintenance — ideal for beginners and those returning to training.' },
-              { key: 'cut',      label: 'FAT LOSS',    desc: "Lose fat while preserving muscle with a calorie deficit. You'll set the exact amount on the next screen." },
-            ].map(g => (
-              <TouchableOpacity
-                key={g.key}
-                style={[styles.selectCard, goal === g.key && styles.selectCardActive]}
-                onPress={() => selectGoal(g.key)}
-              >
-                <Text style={[styles.selectLabel, goal === g.key && styles.selectLabelActive]}>{g.label}</Text>
-                <Text style={styles.selectDesc}>{g.desc}</Text>
-              </TouchableOpacity>
-            ))}
+            <View accessibilityRole="radiogroup">
+              {[
+                { key: 'bulk',     icon: 'trending-up',   label: 'Build muscle',       desc: "A small calorie surplus. You'll set the exact amount next." },
+                { key: 'maintain', icon: 'minus',         label: 'Recomp / maintain',  desc: 'Eat at maintenance to lose fat and build muscle together. Ideal for beginners and returners.' },
+                { key: 'cut',      icon: 'trending-down', label: 'Lose fat',           desc: "A controlled deficit that preserves muscle. You'll set the amount next." },
+              ].map(g => (
+                <ChoiceCard
+                  key={g.key}
+                  icon={g.icon}
+                  label={g.label}
+                  desc={g.desc}
+                  selected={goal === g.key}
+                  onPress={() => { selectGoal(g.key); setError(''); }}
+                />
+              ))}
+            </View>
           </View>
         )}
 
         {/* STEP 4 — Calorie adjustment (bulk) */}
         {step === 4 && goal === 'bulk' && (
-          <View style={styles.stepContainer}>
-            <Text style={styles.title}>Set Your Surplus</Text>
+          <View>
+            <Text style={styles.title} accessibilityRole="header">Set your surplus</Text>
             <Text style={styles.subtitle}>
-              How many extra calories above your maintenance of {tdee} kcal would you like each day?
+              Extra calories per day above your maintenance of {tdee} kcal. Mentzer's own figure is about 16 kcal a day: enough for roughly 10 lb of muscle a year. More than that mostly adds fat.
             </Text>
             <View style={styles.sliderCard}>
               <CalorieSlider
                 onDragStart={() => setScrollEnabled(false)}
                 onDragEnd={() => setScrollEnabled(true)}
                 value={calorieAdjustment}
-                min={50}
-                max={300}
-                step={50}
+                min={SURPLUS_RANGE.min}
+                max={SURPLUS_RANGE.max}
+                step={SURPLUS_RANGE.step}
                 onChange={setCalorieAdjustment}
                 color={COLORS.gold}
                 zones={BULK_ZONES}
+                accessibilityLabel="Daily calorie surplus"
               />
             </View>
             <View style={styles.previewCard}>
-              <Text style={styles.previewLabel}>YOUR DAILY CALORIE TARGET</Text>
-              <Text style={styles.previewValue}>{calorieTarget}</Text>
-              <Text style={styles.previewSub}>maintenance {tdee} + surplus {calorieAdjustment}</Text>
+              <Text style={styles.previewLabel}>YOUR DAILY TARGET</Text>
+              <Text style={styles.previewValue}>{calorieTarget}<Text style={styles.previewUnit}> kcal</Text></Text>
+              <Text style={styles.previewSub}>{tdee} maintenance + {calorieAdjustment} surplus</Text>
             </View>
           </View>
         )}
 
         {/* STEP 4 — Calorie adjustment (cut) */}
         {step === 4 && goal === 'cut' && (
-          <View style={styles.stepContainer}>
-            <Text style={styles.title}>Set Your Deficit</Text>
+          <View>
+            <Text style={styles.title} accessibilityRole="header">Set your deficit</Text>
             <Text style={styles.subtitle}>
-              How many calories below your maintenance of {tdee} kcal would you like to cut each day?
+              Calories per day below your maintenance of {tdee} kcal. Smaller deficits protect the muscle you've built.
             </Text>
             <View style={styles.sliderCard}>
               <CalorieSlider
                 onDragStart={() => setScrollEnabled(false)}
                 onDragEnd={() => setScrollEnabled(true)}
                 value={calorieAdjustment}
-                min={100}
-                max={500}
-                step={50}
+                min={DEFICIT_RANGE.min}
+                max={DEFICIT_RANGE.max}
+                step={DEFICIT_RANGE.step}
                 onChange={setCalorieAdjustment}
                 color={COLORS.red}
                 zones={CUT_ZONES}
+                accessibilityLabel="Daily calorie deficit"
               />
             </View>
             <View style={styles.previewCard}>
-              <Text style={styles.previewLabel}>YOUR DAILY CALORIE TARGET</Text>
-              <Text style={styles.previewValue}>{calorieTarget}</Text>
-              <Text style={styles.previewSub}>maintenance {tdee} − deficit {calorieAdjustment}</Text>
+              <Text style={styles.previewLabel}>YOUR DAILY TARGET</Text>
+              <Text style={styles.previewValue}>{calorieTarget}<Text style={styles.previewUnit}> kcal</Text></Text>
+              <Text style={styles.previewSub}>{tdee} maintenance − {calorieAdjustment} deficit</Text>
             </View>
             <WeightLossPrediction deficit={calorieAdjustment} imperial={imperial} />
           </View>
@@ -488,184 +495,248 @@ export default function OnboardingScreen({ onComplete }) {
 
         {/* STEP 5 — Experience */}
         {step === 5 && (
-          <View style={styles.stepContainer}>
-            <Text style={styles.title}>Experience Level</Text>
-            <Text style={styles.subtitle}>Be honest — this determines your training frequency and volume.</Text>
+          <View>
+            <Text style={styles.title} accessibilityRole="header">Training experience</Text>
+            <Text style={styles.subtitle}>Be honest. This shapes how often you train and how long you rest.</Text>
 
-            {[
-              { key: 'beginner',     label: 'BEGINNER',     desc: 'Under 1 year of training. HD2 still applies — one set to failure, minimum 4 days rest.' },
-              { key: 'intermediate', label: 'INTERMEDIATE', desc: '1-3 years of serious training. Full HD2 protocol — consolidated routine, 4-6 days rest.' },
-              { key: 'advanced',     label: 'ADVANCED',     desc: '3+ years of training. HD2 consolidated — Squats, Dips, Deadlifts only. Up to 7 days rest.' },
-            ].map(e => (
-              <TouchableOpacity
-                key={e.key}
-                style={[styles.selectCard, experience === e.key && styles.selectCardActive]}
-                onPress={() => setExperience(e.key)}
-              >
-                <Text style={[styles.selectLabel, experience === e.key && styles.selectLabelActive]}>{e.label}</Text>
-                <Text style={styles.selectDesc}>{e.desc}</Text>
-              </TouchableOpacity>
-            ))}
+            <View accessibilityRole="radiogroup">
+              {[
+                { key: 'beginner',     icon: 'circle',   label: 'Beginner',     desc: 'Under 1 year of training. One set to failure, at least 4 days rest.' },
+                { key: 'intermediate', icon: 'disc',     label: 'Intermediate', desc: '1–3 years of serious training. Full Heavy Duty protocol, 4–6 days rest.' },
+                { key: 'advanced',     icon: 'target',   label: 'Advanced',     desc: '3+ years. Consolidated routine built on squats, dips and deadlifts. Up to 7 days rest.' },
+              ].map(e => (
+                <ChoiceCard
+                  key={e.key}
+                  icon={e.icon}
+                  label={e.label}
+                  desc={e.desc}
+                  selected={experience === e.key}
+                  onPress={() => { setExperience(e.key); setError(''); }}
+                />
+              ))}
+            </View>
           </View>
         )}
 
         {/* STEP 6 — Summary */}
         {step === 6 && (
-          <View style={styles.stepContainer}>
-            <Text style={styles.title}>Your Plan, {name}.</Text>
-            <Text style={styles.subtitle}>Based on your stats, here are your targets.</Text>
+          <View>
+            <Text style={styles.title} accessibilityRole="header">Your plan, {name.trim()}.</Text>
+            <Text style={styles.subtitle}>Here are your starting targets. Adjust them any time from your profile.</Text>
 
             <View style={styles.summaryCard}>
-              <Text style={styles.summaryLabel}>DAILY CALORIES</Text>
+              <Text style={styles.previewLabel}>DAILY CALORIES</Text>
               <Text style={styles.summaryValue}>{calorieTarget}</Text>
-              <Text style={styles.summaryGoal}>{getGoalLabel().toUpperCase()}</Text>
+              <Text style={styles.summaryGoal}>{getGoalLabel()}</Text>
             </View>
 
             <View style={styles.macroRow}>
-              <View style={styles.macroBox}>
-                <Text style={styles.macroValue}>{calorieTarget ? Math.round(calorieTarget * 0.6 / 4) : '—'}g</Text>
-                <Text style={styles.macroLabel}>CARBS</Text>
-              </View>
-              <View style={styles.macroBox}>
-                <Text style={styles.macroValue}>{proteinTarget}g</Text>
-                <Text style={styles.macroLabel}>PROTEIN</Text>
-              </View>
-              <View style={styles.macroBox}>
-                <Text style={styles.macroValue}>{calorieTarget ? Math.round(calorieTarget * 0.15 / 9) : '—'}g</Text>
-                <Text style={styles.macroLabel}>FAT</Text>
-              </View>
+              <Macro value={calorieTarget ? Math.round(calorieTarget * 0.6 / 4) : '—'} label="Carbs" />
+              <Macro value={proteinTarget ?? '—'} label="Protein" />
+              <Macro value={calorieTarget ? Math.round(calorieTarget * 0.15 / 9) : '—'} label="Fat" />
             </View>
 
             <View style={styles.infoCard}>
-              <Text style={styles.infoLabel}>TRAINING FREQUENCY</Text>
-              <Text style={styles.infoValue}>{getExperienceDescription()}</Text>
-            </View>
-
-            <View style={styles.infoCard}>
-              <Text style={styles.infoLabel}>MAINTENANCE CALORIES</Text>
-              <Text style={styles.infoValue}>{tdee} kcal/day</Text>
-            </View>
-
-            {goal !== 'maintain' && (
-              <View style={styles.infoCard}>
-                <Text style={styles.infoLabel}>{goal === 'bulk' ? 'DAILY SURPLUS' : 'DAILY DEFICIT'}</Text>
-                <Text style={styles.infoValue}>{calorieAdjustment} cal/day</Text>
-              </View>
-            )}
-
-            <View style={styles.infoCard}>
-              <Text style={styles.infoLabel}>YOUR STATS</Text>
-              <Text style={styles.infoValue}>
-                {imperial
-                  ? `${heightFt}ft ${heightIn}in · ${weightLbs}lbs`
+              <InfoRow label="Training" value={getExperienceDescription()} />
+              <InfoRow label="Maintenance" value={`${tdee} kcal / day`} />
+              {goal !== 'maintain' && (
+                <InfoRow label={goal === 'bulk' ? 'Daily surplus' : 'Daily deficit'} value={`${calorieAdjustment} kcal / day`} />
+              )}
+              <InfoRow
+                label="Your stats"
+                value={imperial
+                  ? `${heightFt}ft ${heightIn || 0}in · ${weightLbs}lbs`
                   : `${getHeightCm()}cm · ${getWeightKg()}kg`}
-              </Text>
+                last
+              />
             </View>
-
-            <Text style={styles.quote}>
-              "The purpose of training is to stimulate growth. Everything else is wasted effort."
-            </Text>
-            <Text style={styles.quoteAuthor}>— Mike Mentzer</Text>
           </View>
         )}
 
+        {error ? (
+          <View style={styles.error} accessibilityLiveRegion="polite" accessibilityRole="alert">
+            <Feather name="alert-circle" size={15} color={COLORS.red} />
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        ) : null}
       </ScrollView>
 
       {/* Footer */}
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
         {step === 6 ? (
-          <TouchableOpacity style={styles.primaryButton} onPress={saveProfile} disabled={saving}>
-            <Text style={styles.primaryButtonText}>{saving ? 'SAVING...' : 'START TRAINING'}</Text>
-          </TouchableOpacity>
+          <Button title="START TRAINING" onPress={saveProfile} loading={saving} />
         ) : (
-          <TouchableOpacity style={styles.primaryButton} onPress={next}>
-            <Text style={styles.primaryButtonText}>CONTINUE →</Text>
-          </TouchableOpacity>
-        )}
-        {step > 0 && (
-          <TouchableOpacity onPress={back} style={styles.backButton}>
-            <Text style={styles.backButtonText}>← BACK</Text>
-          </TouchableOpacity>
+          <Button title="CONTINUE" onPress={next} />
         )}
       </View>
+    </KeyboardAvoidingView>
+  );
+}
+
+// ─── Small presentational helpers ────────────────────────────────────────────
+function Field({ label, children }) {
+  return (
+    <View style={styles.field}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      {children}
+    </View>
+  );
+}
+
+function UnitInput({ value, onChangeText, placeholder, unit, keyboardType = 'decimal-pad', label }) {
+  return (
+    <View style={[styles.unitInputWrap, { flex: 1 }]}>
+      <TextInput
+        style={styles.unitInput}
+        value={value}
+        onChangeText={onChangeText}
+        keyboardType={keyboardType}
+        placeholder={placeholder}
+        placeholderTextColor={COLORS.textFaint}
+        accessibilityLabel={label}
+      />
+      <Text style={styles.unitSuffix}>{unit}</Text>
+    </View>
+  );
+}
+
+function ChoiceCard({ icon, label, desc, selected, onPress }) {
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.selectCard, selected && styles.selectCardActive, pressed && !selected && styles.selectCardPressed]}
+      onPress={onPress}
+      accessibilityRole="radio"
+      accessibilityState={{ checked: selected }}
+      accessibilityLabel={`${label}. ${desc}`}
+    >
+      <View style={[styles.selectIcon, selected && styles.selectIconActive]}>
+        <Feather name={icon} size={18} color={selected ? COLORS.onGold : COLORS.textMuted} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.selectLabel, selected && styles.selectLabelActive]}>{label}</Text>
+        <Text style={styles.selectDesc}>{desc}</Text>
+      </View>
+      <View style={[styles.radio, selected && styles.radioOn]}>
+        {selected && <View style={styles.radioDot} />}
+      </View>
+    </Pressable>
+  );
+}
+
+function Macro({ value, label }) {
+  return (
+    <View style={styles.macroBox} accessible accessibilityLabel={`${label} ${value} grams`}>
+      <Text style={styles.macroValue}>{value}<Text style={styles.macroUnit}>g</Text></Text>
+      <Text style={styles.macroLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function InfoRow({ label, value, last }) {
+  return (
+    <View style={[styles.infoRow, !last && styles.infoRowBorder]}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={styles.infoValue}>{value}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container:    { flex: 1, backgroundColor: COLORS.background },
-  progressBar:  { flexDirection: 'row', justifyContent: 'center', gap: 8, paddingTop: 60, paddingBottom: 20 },
-  dot:          { width: 8, height: 8, borderRadius: 4, backgroundColor: '#2a2a2a' },
-  dotActive:    { backgroundColor: COLORS.gold },
-  content:      { paddingHorizontal: SPACING.xl, paddingBottom: 40 },
-  stepContainer:{ flexShrink: 0 },
+  container: { flex: 1, backgroundColor: COLORS.background },
 
-  logo:    { fontSize: 36, fontWeight: FONT.black, color: COLORS.gold, letterSpacing: 8, marginBottom: 4 },
-  logoSub: { fontSize: 10, color: COLORS.textDim, letterSpacing: 4, marginBottom: 40 },
-  title:   { fontSize: 28, fontWeight: FONT.black, color: COLORS.white, marginBottom: 12 },
-  subtitle:{ fontSize: 14, color: COLORS.textMuted, lineHeight: 22, marginBottom: 32 },
+  topBar:        { paddingHorizontal: SPACING.screen, paddingBottom: SPACING.md },
+  topRow:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: HIT },
+  backBtn:       { width: HIT, height: HIT, justifyContent: 'center', marginLeft: -8 },
+  stepCount:     { ...TYPE.caption, color: COLORS.textDim, fontVariant: ['tabular-nums'] },
+  progressTrack: { height: 4, borderRadius: 2, backgroundColor: COLORS.border, overflow: 'hidden', marginTop: 4 },
+  progressFill:  { height: 4, borderRadius: 2, backgroundColor: COLORS.gold },
 
-  stepTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  content: { paddingHorizontal: SPACING.xl, paddingTop: SPACING.lg, paddingBottom: 40, maxWidth: 560, width: '100%', alignSelf: 'center' },
 
-  // Unit toggle
-  unitToggle: {
-    flexDirection: 'row', backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.lg, borderWidth: 1, borderColor: COLORS.border,
-    overflow: 'hidden',
-  },
-  unitOption: {
-    paddingHorizontal: 12, paddingVertical: 8,
-  },
-  unitOptionActive: { backgroundColor: COLORS.gold },
-  unitOptionText:   { color: COLORS.textDim, fontSize: 10, fontWeight: FONT.bold, letterSpacing: 1 },
-  unitOptionTextActive: { color: '#000' },
+  logo:    { fontSize: 32, fontWeight: FONT.black, color: COLORS.gold, letterSpacing: 8 },
+  logoSub: { fontSize: 11, fontWeight: FONT.semibold, color: COLORS.textDim, letterSpacing: 5, marginTop: 4, marginBottom: 40 },
+  title:   { ...TYPE.display, color: COLORS.white, marginBottom: 10 },
+  subtitle:{ ...TYPE.body, color: COLORS.textMuted, marginBottom: SPACING.xl },
 
-  fieldLabel: { color: COLORS.textDim, fontSize: 10, letterSpacing: 2, marginBottom: 8, marginTop: 16 },
+  field:      { marginBottom: SPACING.lg },
+  fieldLabel: { ...TYPE.caption, color: COLORS.textSecondary, marginBottom: 8 },
   input: {
-    backgroundColor: '#1a1a1a', color: COLORS.white,
-    borderRadius: RADIUS.md, padding: 16, fontSize: 16,
+    backgroundColor: COLORS.surfaceDark, color: COLORS.white,
+    borderRadius: RADIUS.md, paddingHorizontal: 16, minHeight: 54, fontSize: 17,
     borderWidth: 1, borderColor: COLORS.border,
   },
-  unitHint: { color: COLORS.textFaint, fontSize: 11, marginTop: 6, letterSpacing: 1 },
+  unitInputWrap: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: COLORS.surfaceDark, borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: COLORS.border, paddingRight: 16,
+  },
+  unitInput:  { flex: 1, color: COLORS.white, paddingHorizontal: 16, minHeight: 54, fontSize: 17 },
+  unitSuffix: { color: COLORS.textMuted, fontSize: 15, fontWeight: FONT.medium },
+
+  unitToggle: {
+    flexDirection: 'row', alignSelf: 'flex-start', backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.pill, borderWidth: 1, borderColor: COLORS.border,
+    padding: 3, marginBottom: SPACING.lg,
+  },
+  unitOption:           { paddingHorizontal: 16, minHeight: 40, justifyContent: 'center', borderRadius: RADIUS.pill },
+  unitOptionActive:     { backgroundColor: COLORS.gold },
+  unitOptionText:       { color: COLORS.textMuted, fontSize: 13, fontWeight: FONT.semibold },
+  unitOptionTextActive: { color: COLORS.onGold },
 
   optionRow:          { flexDirection: 'row', gap: 12 },
-  optionButton:       { flex: 1, paddingVertical: 16, borderRadius: RADIUS.md, alignItems: 'center', backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: COLORS.border },
-  optionButtonActive: { backgroundColor: COLORS.gold, borderColor: COLORS.gold },
-  optionText:         { color: COLORS.textDim, fontWeight: FONT.semibold, letterSpacing: 2 },
-  optionTextActive:   { color: '#000' },
+  optionButton:       { flex: 1, minHeight: 54, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center',
+                        backgroundColor: COLORS.surfaceDark, borderWidth: 1, borderColor: COLORS.border },
+  optionButtonActive: { backgroundColor: COLORS.goldFaint, borderColor: COLORS.gold },
+  optionText:         { color: COLORS.textSecondary, fontSize: 16, fontWeight: FONT.semibold },
+  optionTextActive:   { color: COLORS.gold },
 
-  selectCard:        { backgroundColor: '#1a1a1a', borderRadius: RADIUS.md, padding: SPACING.lg, marginBottom: 12, borderWidth: 1, borderColor: COLORS.border },
-  selectCardActive:  { borderColor: COLORS.gold, backgroundColor: '#1a1500' },
-  selectLabel:       { color: COLORS.textDim, fontSize: 13, fontWeight: FONT.bold, letterSpacing: 2, marginBottom: 6 },
-  selectLabelActive: { color: COLORS.gold },
-  selectDesc:        { color: COLORS.textMuted, fontSize: 13, lineHeight: 20, flexShrink: 1, flexWrap: 'wrap' },
+  selectCard:        { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: COLORS.surface,
+                       borderRadius: RADIUS.lg, padding: SPACING.md, marginBottom: 12, borderWidth: 1, borderColor: COLORS.border },
+  selectCardActive:  { borderColor: COLORS.gold, backgroundColor: COLORS.goldFaint },
+  selectCardPressed: { backgroundColor: COLORS.surfaceRaised },
+  selectIcon:        { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.surfaceDark,
+                       alignItems: 'center', justifyContent: 'center' },
+  selectIconActive:  { backgroundColor: COLORS.gold },
+  selectLabel:       { ...TYPE.heading, color: COLORS.white, marginBottom: 3 },
+  selectLabelActive: { color: COLORS.goldBright },
+  selectDesc:        { ...TYPE.callout, color: COLORS.textMuted },
+  radio:             { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: COLORS.borderStrong,
+                       alignItems: 'center', justifyContent: 'center' },
+  radioOn:           { borderColor: COLORS.gold },
+  radioDot:          { width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.gold },
 
-  sliderCard:   { backgroundColor: COLORS.surface, borderRadius: RADIUS.xl, padding: SPACING.lg, marginBottom: 16, borderWidth: 1, borderColor: COLORS.border },
-  previewCard:  { backgroundColor: '#1a1500', borderRadius: RADIUS.xl, padding: SPACING.lg, alignItems: 'center', borderWidth: 1, borderColor: COLORS.goldBorder },
-  previewLabel: { color: COLORS.gold, fontSize: 10, letterSpacing: 3, marginBottom: 8 },
-  previewValue: { color: COLORS.white, fontSize: 52, fontWeight: FONT.black },
-  previewSub:   { color: COLORS.textDim, fontSize: 11, marginTop: 4, letterSpacing: 1 },
+  sliderCard:   { backgroundColor: COLORS.surface, borderRadius: RADIUS.xl, padding: SPACING.lg, marginBottom: 12,
+                  borderWidth: 1, borderColor: COLORS.border },
+  previewCard:  { backgroundColor: COLORS.goldFaint, borderRadius: RADIUS.xl, padding: SPACING.lg, alignItems: 'center',
+                  borderWidth: 1, borderColor: COLORS.goldBorder },
+  previewLabel: { ...TYPE.overline, color: COLORS.gold, marginBottom: 6 },
+  previewValue: { color: COLORS.white, fontSize: 48, fontWeight: FONT.black, fontVariant: ['tabular-nums'] },
+  previewUnit:  { fontSize: 18, color: COLORS.textMuted, fontWeight: FONT.medium },
+  previewSub:   { ...TYPE.caption, color: COLORS.textMuted, marginTop: 4 },
 
-  summaryCard:  { backgroundColor: '#1a1500', borderRadius: RADIUS.md, padding: SPACING.xl, alignItems: 'center', marginBottom: 16, borderWidth: 1, borderColor: COLORS.goldBorder },
-  summaryLabel: { color: COLORS.gold, fontSize: 10, letterSpacing: 3, marginBottom: 8 },
-  summaryValue: { color: COLORS.white, fontSize: 56, fontWeight: FONT.black },
-  summaryGoal:  { color: COLORS.textMuted, fontSize: 12, letterSpacing: 2, marginTop: 4 },
+  summaryCard:  { backgroundColor: COLORS.goldFaint, borderRadius: RADIUS.xl, padding: SPACING.xl, alignItems: 'center',
+                  marginBottom: 12, borderWidth: 1, borderColor: COLORS.goldBorder },
+  summaryValue: { color: COLORS.white, fontSize: 56, fontWeight: FONT.black, fontVariant: ['tabular-nums'] },
+  summaryGoal:  { ...TYPE.callout, color: COLORS.textSecondary, marginTop: 2 },
 
-  macroRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
-  macroBox: { flex: 1, backgroundColor: '#1a1a1a', borderRadius: RADIUS.md, padding: SPACING.md, alignItems: 'center', borderWidth: 1, borderColor: COLORS.border },
-  macroValue: { color: COLORS.white, fontSize: 20, fontWeight: FONT.black },
-  macroLabel: { color: COLORS.textDim, fontSize: 9, letterSpacing: 2, marginTop: 4 },
+  macroRow:   { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  macroBox:   { flex: 1, backgroundColor: COLORS.surface, borderRadius: RADIUS.lg, padding: SPACING.md, alignItems: 'center',
+                borderWidth: 1, borderColor: COLORS.border },
+  macroValue: { color: COLORS.white, fontSize: 22, fontWeight: FONT.black, fontVariant: ['tabular-nums'] },
+  macroUnit:  { fontSize: 13, color: COLORS.textMuted, fontWeight: FONT.medium },
+  macroLabel: { ...TYPE.caption, color: COLORS.textMuted, marginTop: 2 },
 
-  infoCard:  { backgroundColor: '#1a1a1a', borderRadius: RADIUS.md, padding: SPACING.md, marginBottom: 12, borderWidth: 1, borderColor: COLORS.border },
-  infoLabel: { color: COLORS.textDim, fontSize: 10, letterSpacing: 2, marginBottom: 6 },
-  infoValue: { color: COLORS.white, fontSize: 15, fontWeight: FONT.medium },
+  infoCard:      { backgroundColor: COLORS.surface, borderRadius: RADIUS.lg, paddingHorizontal: SPACING.md,
+                   borderWidth: 1, borderColor: COLORS.border },
+  infoRow:       { paddingVertical: 14 },
+  infoRowBorder: { borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  infoLabel:     { ...TYPE.caption, color: COLORS.textDim, marginBottom: 3 },
+  infoValue:     { ...TYPE.body, color: COLORS.white },
 
-  quote:       { color: COLORS.textDim, fontSize: 13, fontStyle: 'italic', lineHeight: 20, marginTop: 16, textAlign: 'center' },
-  quoteAuthor: { color: COLORS.gold, fontSize: 11, textAlign: 'center', marginTop: 6, letterSpacing: 1 },
+  error:     { flexDirection: 'row', gap: 8, alignItems: 'flex-start', backgroundColor: COLORS.redFaint,
+               borderRadius: RADIUS.md, padding: 12, marginTop: SPACING.sm },
+  errorText: { ...TYPE.callout, color: COLORS.red, flex: 1 },
 
-  footer:            { padding: SPACING.xl, paddingBottom: 40 },
-  primaryButton:     { backgroundColor: COLORS.gold, paddingVertical: 18, borderRadius: RADIUS.md, alignItems: 'center' },
-  primaryButtonText: { color: '#000', fontSize: 14, fontWeight: FONT.black, letterSpacing: 2 },
-  backButton:        { alignItems: 'center', marginTop: 16 },
-  backButtonText:    { color: COLORS.textDim, fontSize: 12, letterSpacing: 1 },
+  footer: { paddingHorizontal: SPACING.xl, paddingTop: SPACING.md, borderTopWidth: 1, borderTopColor: COLORS.border,
+            backgroundColor: COLORS.background },
 });

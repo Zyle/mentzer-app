@@ -1,29 +1,34 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
-  TouchableOpacity, Switch, Alert, TextInput, Modal,
+  Pressable, Switch, Alert, TextInput, Modal, KeyboardAvoidingView, Platform,
 } from 'react-native';
+import { Feather } from '@expo/vector-icons';
+import Button from '../components/Button';
+import ScreenHeader from '../components/ScreenHeader';
+import { useUnits, kgToDisplay } from '../lib/units';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { supabase } from '../lib/supabase';
 import {
-  cancelRecoveryNotifications,
+  setRecoveryNotificationsEnabled,
+  areRecoveryNotificationsEnabled,
   scheduleWeightCheckinReminder,
   cancelWeightCheckinReminder,
 } from '../lib/notifications';
-import { COLORS, FONT, RADIUS, SPACING } from '../theme';
+import { COLORS, FONT, TYPE, RADIUS, SPACING } from '../theme';
 
 const GOALS = [
-  { key: 'bulk',     label: 'BULKING',   sub: 'Calorie surplus — build muscle' },
-  { key: 'cut',      label: 'CUTTING',   sub: 'Calorie deficit — lose fat' },
-  { key: 'maintain', label: 'MAINTAIN',  sub: 'Eat at maintenance' },
-  { key: 'recomp',   label: 'RECOMP',    sub: 'Lose fat and build muscle simultaneously' },
+  { key: 'bulk',     label: 'Build muscle', sub: 'Small calorie surplus' },
+  { key: 'cut',      label: 'Lose fat',     sub: 'Controlled calorie deficit' },
+  { key: 'maintain', label: 'Maintain',     sub: 'Eat at maintenance' },
+  { key: 'recomp',   label: 'Recomp',       sub: 'Lose fat and build muscle together' },
 ];
 
 const INCREMENTS = [
-  { value: 1.25, label: '1.25 kg', sub: 'Micro-loading — small, steady progress' },
-  { value: 2.5,  label: '2.5 kg',  sub: 'Standard — recommended for most' },
-  { value: 5,    label: '5 kg',    sub: 'Aggressive — for early beginner phase' },
+  { value: 1.25, label: '1.25 kg', sub: 'Micro-loading: small, steady progress' },
+  { value: 2.5,  label: '2.5 kg',  sub: 'Standard: recommended for most' },
+  { value: 5,    label: '5 kg',    sub: 'Large jumps: early beginner phase' },
 ];
 
 export default function SettingsScreen({ navigation }) {
@@ -34,7 +39,7 @@ export default function SettingsScreen({ navigation }) {
   const [savingGoal, setSavingGoal]       = useState(false);
 
   // Units + increment
-  const [units, setUnits]                 = useState('metric');
+  const { units, setUnits }               = useUnits();
   const [increment, setIncrement]         = useState(2.5);
 
   // Notifications
@@ -65,16 +70,14 @@ export default function SettingsScreen({ navigation }) {
 
       if (profile?.goal) setGoal(profile.goal);
 
-      const savedUnits     = await AsyncStorage.getItem('units');
       const savedIncrement = await AsyncStorage.getItem('weightIncrement');
-      setUnits(savedUnits || 'metric');
       setIncrement(savedIncrement ? parseFloat(savedIncrement) : 2.5);
 
       const { status }  = await Notifications.getPermissionsAsync();
       const scheduled   = await Notifications.getAllScheduledNotificationsAsync();
-      const hasRecovery = scheduled.some(n => n.identifier === 'recovery-day4' || n.identifier === 'recovery-peak');
+      const recoveryOn  = await areRecoveryNotificationsEnabled();
       const hasCheckin  = scheduled.some(n => n.identifier === 'weight-checkin');
-      setNotifEnabled(status === 'granted' && hasRecovery);
+      setNotifEnabled(status === 'granted' && recoveryOn);
       setCheckinEnabled(status === 'granted' && hasCheckin);
     } catch (e) {
       console.error('loadSettings error:', e);
@@ -91,8 +94,7 @@ export default function SettingsScreen({ navigation }) {
 
   // ── Units ────────────────────────────────────────────────────────────────────
   const saveUnits = async (newUnits) => {
-    setUnits(newUnits);
-    await AsyncStorage.setItem('units', newUnits);
+    await setUnits(newUnits);
   };
 
   // ── Weight increment ─────────────────────────────────────────────────────────
@@ -104,14 +106,15 @@ export default function SettingsScreen({ navigation }) {
   // ── Notifications ────────────────────────────────────────────────────────────
   const toggleNotifications = async (value) => {
     if (!value) {
-      await cancelRecoveryNotifications();
+      await setRecoveryNotificationsEnabled(false);
       setNotifEnabled(false);
       return;
     }
     const { status } = await Notifications.requestPermissionsAsync();
     if (status === 'granted') {
+      await setRecoveryNotificationsEnabled(true);
       setNotifEnabled(true);
-      Alert.alert('Recovery Alerts On', "You'll be notified at day 4 and day 5.5 after each workout.");
+      Alert.alert('Recovery alerts on', "You'll be notified at day 4 and day 5.5 after each workout.");
     } else {
       Alert.alert('Permission Denied', 'Enable notifications in your device Settings.');
     }
@@ -185,300 +188,280 @@ export default function SettingsScreen({ navigation }) {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.back}>← BACK</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>SETTINGS</Text>
-        <View style={{ width: 60 }} />
-      </View>
+      <ScreenHeader title="Settings" onBack={() => navigation.goBack()} bordered />
 
       <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
 
         {/* ── TRAINING GOAL ──────────────────────────────────────────────────── */}
-        <Text style={styles.sectionLabel}>TRAINING GOAL</Text>
-        <View style={styles.card}>
+        <Text style={styles.sectionLabel} accessibilityRole="header">TRAINING GOAL</Text>
+        <View style={styles.card} accessibilityRole="radiogroup">
           {GOALS.map((g, i) => (
-            <TouchableOpacity
+            <OptionRow
               key={g.key}
-              style={[styles.optionRow, i < GOALS.length - 1 && styles.rowBorder, goal === g.key && styles.optionRowActive]}
+              label={g.label}
+              sub={g.sub}
+              selected={goal === g.key}
               onPress={() => saveGoal(g.key)}
-              activeOpacity={0.7}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.optionLabel, goal === g.key && styles.optionLabelActive]}>{g.label}</Text>
-                <Text style={styles.optionSub}>{g.sub}</Text>
-              </View>
-              {goal === g.key && <View style={styles.checkDot} />}
-            </TouchableOpacity>
+              border={i < GOALS.length - 1}
+            />
           ))}
-          {savingGoal && <Text style={styles.savingText}>Saving…</Text>}
+          {savingGoal && <Text style={styles.savingText} accessibilityLiveRegion="polite">Saving…</Text>}
         </View>
 
         {/* ── UNITS ──────────────────────────────────────────────────────────── */}
-        <Text style={styles.sectionLabel}>UNITS</Text>
-        <View style={styles.card}>
+        <Text style={styles.sectionLabel} accessibilityRole="header">UNITS</Text>
+        <View style={styles.card} accessibilityRole="radiogroup">
           {[
-            { key: 'metric',   label: 'METRIC',   sub: 'Kilograms · Centimetres' },
-            { key: 'imperial', label: 'IMPERIAL',  sub: 'Pounds · Feet & Inches' },
+            { key: 'metric',   label: 'Metric',   sub: 'Kilograms · centimetres' },
+            { key: 'imperial', label: 'Imperial', sub: 'Pounds · feet & inches' },
           ].map((u, i) => (
-            <TouchableOpacity
+            <OptionRow
               key={u.key}
-              style={[styles.optionRow, i === 0 && styles.rowBorder, units === u.key && styles.optionRowActive]}
+              label={u.label}
+              sub={u.sub}
+              selected={units === u.key}
               onPress={() => saveUnits(u.key)}
-              activeOpacity={0.7}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.optionLabel, units === u.key && styles.optionLabelActive]}>{u.label}</Text>
-                <Text style={styles.optionSub}>{u.sub}</Text>
-              </View>
-              {units === u.key && <View style={styles.checkDot} />}
-            </TouchableOpacity>
+              border={i === 0}
+            />
           ))}
         </View>
 
         {/* ── WEIGHT INCREMENT ────────────────────────────────────────────────── */}
-        <Text style={styles.sectionLabel}>WEIGHT INCREMENT</Text>
-        <View style={styles.card}>
+        <Text style={styles.sectionLabel} accessibilityRole="header">WEIGHT INCREMENT</Text>
+        <View style={styles.card} accessibilityRole="radiogroup">
           {INCREMENTS.map((inc, i) => (
-            <TouchableOpacity
+            <OptionRow
               key={inc.value}
-              style={[styles.optionRow, i < INCREMENTS.length - 1 && styles.rowBorder, increment === inc.value && styles.optionRowActive]}
+              label={units === 'imperial' ? `${inc.label} (≈${kgToDisplay(inc.value, true)} lb)` : inc.label}
+              sub={inc.sub}
+              selected={increment === inc.value}
               onPress={() => saveIncrement(inc.value)}
-              activeOpacity={0.7}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.optionLabel, increment === inc.value && styles.optionLabelActive]}>{inc.label}</Text>
-                <Text style={styles.optionSub}>{inc.sub}</Text>
-              </View>
-              {increment === inc.value && <View style={styles.checkDot} />}
-            </TouchableOpacity>
+              border={i < INCREMENTS.length - 1}
+            />
           ))}
         </View>
 
         {/* ── NOTIFICATIONS ────────────────────────────────────────────────────── */}
-        <Text style={styles.sectionLabel}>NOTIFICATIONS</Text>
+        <Text style={styles.sectionLabel} accessibilityRole="header">NOTIFICATIONS</Text>
         <View style={styles.card}>
-          <View style={[styles.toggleRow, styles.rowBorder]}>
+          <View style={[styles.row, styles.rowBorder]}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.optionLabel}>Recovery Alerts</Text>
+              <Text style={styles.optionLabel}>Recovery alerts</Text>
               <Text style={styles.optionSub}>Day 4 (ready) and day 5.5 (peak) after each workout</Text>
             </View>
             <Switch
               value={notifEnabled}
               onValueChange={toggleNotifications}
-              trackColor={{ false: COLORS.border, true: COLORS.goldBorder }}
-              thumbColor={notifEnabled ? COLORS.gold : '#555'}
+              trackColor={{ false: COLORS.border, true: COLORS.gold }}
+              thumbColor={COLORS.white}
+              ios_backgroundColor={COLORS.border}
+              accessibilityLabel="Recovery alerts"
             />
           </View>
-          <View style={styles.toggleRow}>
+          <View style={styles.row}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.optionLabel}>Weight Check-in</Text>
-              <Text style={styles.optionSub}>Bi-weekly reminder to log your bodyweight</Text>
+              <Text style={styles.optionLabel}>Weight check-in</Text>
+              <Text style={styles.optionSub}>Reminder every two weeks to log your bodyweight</Text>
             </View>
             <Switch
               value={checkinEnabled}
               onValueChange={toggleCheckin}
-              trackColor={{ false: COLORS.border, true: COLORS.goldBorder }}
-              thumbColor={checkinEnabled ? COLORS.gold : '#555'}
+              trackColor={{ false: COLORS.border, true: COLORS.gold }}
+              thumbColor={COLORS.white}
+              ios_backgroundColor={COLORS.border}
+              accessibilityLabel="Weight check-in reminder"
             />
           </View>
         </View>
 
         {/* ── ACCOUNT ──────────────────────────────────────────────────────────── */}
-        <Text style={styles.sectionLabel}>ACCOUNT</Text>
+        <Text style={styles.sectionLabel} accessibilityRole="header">ACCOUNT</Text>
         <View style={styles.card}>
-          <TouchableOpacity style={[styles.optionRow, styles.rowBorder]} onPress={() => setEmailModal(true)} activeOpacity={0.7}>
-            <Text style={styles.optionLabel}>Change Email</Text>
-            <Text style={styles.chevron}>›</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.optionRow, styles.rowBorder]} onPress={() => setPasswordModal(true)} activeOpacity={0.7}>
-            <Text style={styles.optionLabel}>Change Password</Text>
-            <Text style={styles.chevron}>›</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.optionRow, styles.rowBorder]} onPress={signOut} activeOpacity={0.7}>
-            <Text style={styles.signOutLabel}>SIGN OUT</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.optionRow} onPress={() => setDeleteModal(true)} activeOpacity={0.7}>
-            <Text style={styles.deleteLabel}>DELETE ACCOUNT</Text>
-          </TouchableOpacity>
+          <LinkRow icon="mail" label="Change email" onPress={() => setEmailModal(true)} border />
+          <LinkRow icon="lock" label="Change password" onPress={() => setPasswordModal(true)} border />
+          <LinkRow icon="log-out" label="Sign out" onPress={signOut} border />
+          <LinkRow icon="trash-2" label="Delete account" onPress={() => setDeleteModal(true)} danger />
         </View>
 
       </ScrollView>
 
       {/* ── Change Email Modal ────────────────────────────────────────────────── */}
-      <Modal visible={emailModal} transparent animationType="fade">
-        <View style={styles.overlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>CHANGE EMAIL</Text>
-            <TextInput
-              style={styles.modalInput}
-              value={newEmail}
-              onChangeText={setNewEmail}
-              placeholder="New email address"
-              placeholderTextColor={COLORS.textFaint}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoFocus
-            />
-            <Text style={styles.modalHint}>A confirmation link will be sent to your new address.</Text>
-            <View style={styles.modalButtons}>
-              <TouchableOpacity style={styles.modalCancel} onPress={() => { setEmailModal(false); setNewEmail(''); }}>
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalConfirm, (!newEmail.trim() || accountLoading) && { opacity: 0.4 }]}
-                onPress={changeEmail}
-                disabled={!newEmail.trim() || accountLoading}
-              >
-                <Text style={styles.modalConfirmText}>{accountLoading ? 'SAVING…' : 'CONFIRM'}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+      <Sheet visible={emailModal} title="Change email" onClose={() => { setEmailModal(false); setNewEmail(''); }}>
+        <TextInput
+          style={styles.modalInput}
+          value={newEmail}
+          onChangeText={setNewEmail}
+          placeholder="New email address"
+          placeholderTextColor={COLORS.textFaint}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoComplete="email"
+          autoFocus
+          accessibilityLabel="New email address"
+        />
+        <Text style={styles.modalHint}>A confirmation link will be sent to your new address.</Text>
+        <View style={styles.modalButtons}>
+          <Button title="Cancel" variant="secondary" size="md" style={{ flex: 1 }}
+            onPress={() => { setEmailModal(false); setNewEmail(''); }} />
+          <Button title="CONFIRM" size="md" style={{ flex: 1.4 }}
+            onPress={changeEmail} disabled={!newEmail.trim()} loading={accountLoading} />
         </View>
-      </Modal>
+      </Sheet>
 
       {/* ── Change Password Modal ─────────────────────────────────────────────── */}
-      <Modal visible={passwordModal} transparent animationType="fade">
-        <View style={styles.overlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>CHANGE PASSWORD</Text>
-            <TextInput
-              style={styles.modalInput}
-              value={newPassword}
-              onChangeText={setNewPassword}
-              placeholder="New password"
-              placeholderTextColor={COLORS.textFaint}
-              secureTextEntry
-              autoFocus
-            />
-            <TextInput
-              style={[styles.modalInput, { marginTop: 10 }]}
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              placeholder="Confirm new password"
-              placeholderTextColor={COLORS.textFaint}
-              secureTextEntry
-            />
-            <View style={styles.modalButtons}>
-              <TouchableOpacity style={styles.modalCancel} onPress={() => { setPasswordModal(false); setNewPassword(''); setConfirmPassword(''); }}>
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalConfirm, (newPassword.length < 6 || accountLoading) && { opacity: 0.4 }]}
-                onPress={changePassword}
-                disabled={newPassword.length < 6 || accountLoading}
-              >
-                <Text style={styles.modalConfirmText}>{accountLoading ? 'SAVING…' : 'CONFIRM'}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+      <Sheet visible={passwordModal} title="Change password" onClose={() => { setPasswordModal(false); setNewPassword(''); setConfirmPassword(''); }}>
+        <TextInput
+          style={styles.modalInput}
+          value={newPassword}
+          onChangeText={setNewPassword}
+          placeholder="New password (6+ characters)"
+          placeholderTextColor={COLORS.textFaint}
+          secureTextEntry
+          autoComplete="new-password"
+          textContentType="newPassword"
+          autoFocus
+          accessibilityLabel="New password"
+        />
+        <TextInput
+          style={[styles.modalInput, { marginTop: 10 }]}
+          value={confirmPassword}
+          onChangeText={setConfirmPassword}
+          placeholder="Confirm new password"
+          placeholderTextColor={COLORS.textFaint}
+          secureTextEntry
+          autoComplete="new-password"
+          textContentType="newPassword"
+          accessibilityLabel="Confirm new password"
+        />
+        <View style={styles.modalButtons}>
+          <Button title="Cancel" variant="secondary" size="md" style={{ flex: 1 }}
+            onPress={() => { setPasswordModal(false); setNewPassword(''); setConfirmPassword(''); }} />
+          <Button title="CONFIRM" size="md" style={{ flex: 1.4 }}
+            onPress={changePassword} disabled={newPassword.length < 6} loading={accountLoading} />
         </View>
-      </Modal>
+      </Sheet>
 
       {/* ── Delete Account Modal ──────────────────────────────────────────────── */}
-      <Modal visible={deleteModal} transparent animationType="fade">
-        <View style={styles.overlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>DELETE ACCOUNT</Text>
-            <Text style={styles.deleteWarning}>
-              This permanently deletes all your workouts, sets, personal bests, and progress. This cannot be undone.
-            </Text>
-            <Text style={styles.deletePrompt}>Type DELETE to confirm</Text>
-            <TextInput
-              style={[styles.modalInput, deleteConfirm === 'DELETE' && { borderColor: COLORS.red }]}
-              value={deleteConfirm}
-              onChangeText={setDeleteConfirm}
-              placeholder="DELETE"
-              placeholderTextColor={COLORS.textFaint}
-              autoCapitalize="characters"
-              autoFocus
-            />
-            <View style={styles.modalButtons}>
-              <TouchableOpacity style={styles.modalCancel} onPress={() => { setDeleteModal(false); setDeleteConfirm(''); }}>
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.deleteConfirmBtn, (deleteConfirm !== 'DELETE' || accountLoading) && { opacity: 0.4 }]}
-                onPress={deleteAccount}
-                disabled={deleteConfirm !== 'DELETE' || accountLoading}
-              >
-                <Text style={styles.deleteConfirmText}>{accountLoading ? 'DELETING…' : 'DELETE'}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+      <Sheet visible={deleteModal} title="Delete account" danger onClose={() => { setDeleteModal(false); setDeleteConfirm(''); }}>
+        <Text style={styles.deleteWarning}>
+          This permanently deletes all your workouts, sets, personal bests, and progress. This cannot be undone.
+        </Text>
+        <Text style={styles.deletePrompt}>Type DELETE to confirm</Text>
+        <TextInput
+          style={[styles.modalInput, deleteConfirm === 'DELETE' && { borderColor: COLORS.red }]}
+          value={deleteConfirm}
+          onChangeText={setDeleteConfirm}
+          placeholder="DELETE"
+          placeholderTextColor={COLORS.textFaint}
+          autoCapitalize="characters"
+          autoFocus
+          accessibilityLabel="Type DELETE to confirm"
+        />
+        <View style={styles.modalButtons}>
+          <Button title="Cancel" variant="secondary" size="md" style={{ flex: 1 }}
+            onPress={() => { setDeleteModal(false); setDeleteConfirm(''); }} />
+          <Button title="DELETE" variant="danger" size="md" style={{ flex: 1.4 }}
+            onPress={deleteAccount} disabled={deleteConfirm !== 'DELETE'} loading={accountLoading} />
         </View>
-      </Modal>
+      </Sheet>
     </View>
+  );
+}
+
+// ─── Presentational helpers ──────────────────────────────────────────────────
+function OptionRow({ label, sub, selected, onPress, border }) {
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.row, border && styles.rowBorder, pressed && styles.rowPressed]}
+      onPress={onPress}
+      accessibilityRole="radio"
+      accessibilityState={{ checked: selected }}
+      accessibilityLabel={`${label}. ${sub}`}
+    >
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.optionLabel, selected && styles.optionLabelActive]}>{label}</Text>
+        <Text style={styles.optionSub}>{sub}</Text>
+      </View>
+      <View style={[styles.radio, selected && styles.radioOn]}>
+        {selected && <View style={styles.radioDot} />}
+      </View>
+    </Pressable>
+  );
+}
+
+function LinkRow({ icon, label, onPress, border, danger }) {
+  const color = danger ? COLORS.red : COLORS.white;
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.row, border && styles.rowBorder, pressed && styles.rowPressed]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+    >
+      <Feather name={icon} size={18} color={danger ? COLORS.red : COLORS.textMuted} />
+      <Text style={[styles.optionLabel, { color, flex: 1, marginBottom: 0, marginLeft: 12 }]}>{label}</Text>
+      {!danger && <Feather name="chevron-right" size={18} color={COLORS.textDim} />}
+    </Pressable>
+  );
+}
+
+function Sheet({ visible, title, onClose, danger, children }) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <View style={[styles.modalCard, danger && { borderColor: COLORS.red + '55' }]} accessibilityViewIsModal>
+          <Text style={styles.modalTitle} accessibilityRole="header">{title}</Text>
+          {children}
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
 
-  header: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingTop: 60, paddingHorizontal: SPACING.screen, paddingBottom: SPACING.md,
-    borderBottomWidth: 1, borderBottomColor: COLORS.surface,
-  },
-  back:  { color: COLORS.textMuted, fontSize: 13, fontWeight: FONT.medium, letterSpacing: 1, width: 60 },
-  title: { color: COLORS.white, fontSize: 14, fontWeight: FONT.black, letterSpacing: 3 },
-
-  content:      { flex: 1, paddingHorizontal: SPACING.screen, paddingTop: SPACING.lg },
-  sectionLabel: { color: '#666', fontSize: 10, fontWeight: FONT.black, letterSpacing: 2, marginBottom: 8, marginTop: 4 },
+  content:      { flex: 1, paddingHorizontal: SPACING.screen, paddingTop: SPACING.sm },
+  sectionLabel: { ...TYPE.overline, color: COLORS.textDim, marginBottom: 8, marginTop: SPACING.lg },
 
   card: {
     backgroundColor: COLORS.surface, borderRadius: RADIUS.lg,
-    borderWidth: 1, borderColor: COLORS.border, marginBottom: SPACING.lg, overflow: 'hidden',
+    borderWidth: 1, borderColor: COLORS.border, overflow: 'hidden',
   },
 
-  rowBorder: { borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  row:        { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SPACING.md, paddingVertical: 14, minHeight: 56 },
+  rowBorder:  { borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  rowPressed: { backgroundColor: COLORS.surfaceRaised },
 
-  // Option rows
-  optionRow: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: SPACING.md, paddingVertical: 14,
-  },
-  optionRowActive:   { backgroundColor: '#0f0e00' },
-  optionLabel:       { color: COLORS.white, fontSize: 13, fontWeight: FONT.semibold, marginBottom: 2 },
-  optionLabelActive: { color: COLORS.gold },
-  optionSub:         { color: '#666', fontSize: 11 },
-  checkDot:          { width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.gold, marginLeft: 12 },
-  chevron:           { color: COLORS.textMuted, fontSize: 20 },
+  optionLabel:       { color: COLORS.white, fontSize: 15, fontWeight: FONT.semibold, marginBottom: 2 },
+  optionLabelActive: { color: COLORS.goldBright },
+  optionSub:         { ...TYPE.caption, color: COLORS.textMuted },
 
-  toggleRow: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: SPACING.md, paddingVertical: 14,
-  },
+  radio:    { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: COLORS.borderStrong,
+              alignItems: 'center', justifyContent: 'center', marginLeft: 12 },
+  radioOn:  { borderColor: COLORS.gold },
+  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.gold },
 
-  savingText:   { color: '#555', fontSize: 10, textAlign: 'center', paddingBottom: 8 },
-  signOutLabel: { color: COLORS.red, fontSize: 13, fontWeight: FONT.semibold, letterSpacing: 1 },
-  deleteLabel:  { color: COLORS.red, fontSize: 13, fontWeight: FONT.semibold, letterSpacing: 1, opacity: 0.7 },
+  savingText: { ...TYPE.caption, color: COLORS.textDim, textAlign: 'center', paddingBottom: 10 },
 
   // Modals
   overlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.85)',
+    flex: 1, backgroundColor: COLORS.overlay,
     justifyContent: 'center', alignItems: 'center', padding: SPACING.screen,
   },
   modalCard: {
     backgroundColor: COLORS.surface, borderRadius: RADIUS.xl,
-    borderWidth: 1, borderColor: COLORS.border, padding: SPACING.lg, width: '100%',
+    borderWidth: 1, borderColor: COLORS.border, padding: SPACING.lg, width: '100%', maxWidth: 440,
   },
-  modalTitle:   { color: COLORS.white, fontSize: 15, fontWeight: FONT.black, letterSpacing: 2, marginBottom: 16 },
+  modalTitle: { ...TYPE.title, color: COLORS.white, marginBottom: 16 },
   modalInput: {
     backgroundColor: COLORS.surfaceDark, color: COLORS.white,
-    fontSize: 15, padding: 14, borderRadius: RADIUS.lg,
-    borderWidth: 1, borderColor: COLORS.border, marginBottom: 8,
+    fontSize: 16, paddingHorizontal: 14, minHeight: 50, borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: COLORS.border,
   },
-  modalHint:    { color: COLORS.textDim, fontSize: 11, marginBottom: 16, lineHeight: 16 },
-  modalButtons: { flexDirection: 'row', gap: 10, marginTop: 8 },
-  modalCancel:  { flex: 1, paddingVertical: 13, borderRadius: RADIUS.lg, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center' },
-  modalCancelText: { color: COLORS.textMuted, fontSize: 13, fontWeight: FONT.medium },
-  modalConfirm: { flex: 1.5, backgroundColor: COLORS.gold, paddingVertical: 13, borderRadius: RADIUS.lg, alignItems: 'center' },
-  modalConfirmText: { color: '#000', fontSize: 13, fontWeight: FONT.black, letterSpacing: 1 },
+  modalHint:    { ...TYPE.caption, color: COLORS.textMuted, marginTop: 8 },
+  modalButtons: { flexDirection: 'row', gap: 10, marginTop: SPACING.lg },
 
-  deleteWarning: { color: COLORS.textMuted, fontSize: 13, lineHeight: 20, marginBottom: 16 },
-  deletePrompt:  { color: COLORS.textDim, fontSize: 11, letterSpacing: 1, marginBottom: 8 },
-  deleteConfirmBtn: { flex: 1.5, backgroundColor: COLORS.red, paddingVertical: 13, borderRadius: RADIUS.lg, alignItems: 'center' },
-  deleteConfirmText: { color: COLORS.white, fontSize: 13, fontWeight: FONT.black, letterSpacing: 1 },
+  deleteWarning: { ...TYPE.body, color: COLORS.textSecondary, marginBottom: 16 },
+  deletePrompt:  { ...TYPE.caption, color: COLORS.textMuted, marginBottom: 8 },
 });

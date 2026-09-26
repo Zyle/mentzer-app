@@ -25,6 +25,7 @@ export default function CalorieSlider({
   zones,
   onDragStart,
   onDragEnd,
+  accessibilityLabel,
 }) {
   const [trackWidth, setTrackWidth] = useState(0);
   const trackRef   = useRef(null);
@@ -42,7 +43,7 @@ export default function CalorieSlider({
     if (trackWidth === 0) return;
     const x = Math.max(0, Math.min(pageX - trackPageX.current, trackWidth));
     const rawValue = min + (x / trackWidth) * (max - min);
-    const steppedValue = Math.round(rawValue / step) * step;
+    const steppedValue = min + Math.round((rawValue - min) / step) * step;
     onChange(Math.max(min, Math.min(max, steppedValue)));
   };
 
@@ -64,18 +65,30 @@ export default function CalorieSlider({
     onDragEnd?.();
   };
 
+  // Screen-reader support: swipe up/down to step the value
+  const handleA11yAction = ({ nativeEvent }) => {
+    const delta = nativeEvent.actionName === 'increment' ? step : nativeEvent.actionName === 'decrement' ? -step : 0;
+    if (delta) onChange(Math.max(min, Math.min(max, value + delta)));
+  };
+
   return (
     <View style={styles.container}>
       {/* Large value display */}
       <View style={styles.valueRow}>
         <Text style={[styles.value, { color }]}>{value}</Text>
-        <Text style={styles.unit}>cal / day</Text>
+        <Text style={styles.unit}>kcal / day</Text>
       </View>
 
       {/* Track — responds to touch and drag */}
       <View
         ref={trackRef}
         style={styles.trackWrapper}
+        accessible
+        accessibilityRole="adjustable"
+        accessibilityLabel={accessibilityLabel || 'Daily calorie adjustment'}
+        accessibilityValue={{ min, max, now: value, text: `${value} calories per day` }}
+        accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+        onAccessibilityAction={handleA11yAction}
         onLayout={() => {
           trackRef.current?.measure((_fx, _fy, width, _height, px) => {
             setTrackWidth(width);
@@ -129,7 +142,7 @@ const styles = StyleSheet.create({
   container:   { paddingVertical: 8 },
   valueRow:    { flexDirection: 'row', alignItems: 'baseline', marginBottom: 4 },
   value:       { fontSize: 52, fontWeight: FONT.black },
-  unit:        { color: COLORS.textDim, fontSize: 13, marginLeft: 8, fontWeight: FONT.semibold },
+  unit:        { color: COLORS.textMuted, fontSize: 13, marginLeft: 8, fontWeight: FONT.semibold },
   trackWrapper:{
     height: 44,
     justifyContent: 'center',
@@ -149,13 +162,15 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
+    borderWidth: 3,
+    borderColor: COLORS.background,
     elevation: 4,
     shadowOpacity: 0.5,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
   },
   rangeRow:  { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
-  rangeLabel:{ color: COLORS.textFaint, fontSize: 10 },
+  rangeLabel:{ color: COLORS.textDim, fontSize: 11 },
   zonesRow:  {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -166,5 +181,5 @@ const styles = StyleSheet.create({
   },
   zoneItem:  { alignItems: 'center', flex: 1 },
   zoneDot:   { width: 6, height: 6, borderRadius: 3, marginBottom: 6 },
-  zoneLabel: { fontSize: 9, letterSpacing: 1, fontWeight: FONT.semibold, textAlign: 'center' },
+  zoneLabel: { fontSize: 11, letterSpacing: 1, fontWeight: FONT.semibold, textAlign: 'center' },
 });

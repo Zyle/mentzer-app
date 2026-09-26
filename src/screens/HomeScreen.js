@@ -1,7 +1,7 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
-  TouchableOpacity, RefreshControl, Modal, Animated,
+  Pressable, RefreshControl, Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Rect, Path, Line, Text as SvgText } from 'react-native-svg';
@@ -9,23 +9,36 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { getRecoveryStatus } from '../lib/progression';
 import { getRandomQuote } from '../data/quotes';
+import { getSessions, workoutAdherence, calcRoutineScore } from '../lib/routineScore';
 import Card from '../components/Card';
+import Button from '../components/Button';
+import SectionTitle from '../components/SectionTitle';
 import { Feather } from '@expo/vector-icons';
-import { COLORS, FONT, RADIUS, SPACING } from '../theme';
+import { COLORS, PHASE_COLORS, FONT, TYPE, RADIUS, SPACING } from '../theme';
 
 // ── Dev override ───────────────────────────────────────────────────────────────
 const DEV_HOURS_SINCE = null;
-const DEV_ANIMATE     = false;
 
 // ── Phase metadata ─────────────────────────────────────────────────────────────
 const PHASE_META = {
-  recovering: { label: 'RECOVERING',     color: '#e05c5c' },
-  repairing:  { label: 'REPAIRING',      color: '#e07a3a' },
-  rebuilding: { label: 'REBUILDING',     color: '#c9a84c' },
-  growing:    { label: 'GROWING',        color: '#8aad5c' },
-  almost:     { label: 'ALMOST READY',   color: '#4CAF50' },
-  ready:      { label: 'READY TO TRAIN', color: '#4CAF50' },
-  overdue:    { label: 'OVERDUE',        color: '#888'    },
+  recovering: { label: 'RECOVERING',     color: PHASE_COLORS.recovering },
+  repairing:  { label: 'REPAIRING',      color: PHASE_COLORS.repairing  },
+  rebuilding: { label: 'REBUILDING',     color: PHASE_COLORS.rebuilding },
+  growing:    { label: 'GROWING',        color: PHASE_COLORS.growing    },
+  almost:     { label: 'ALMOST READY',   color: PHASE_COLORS.almost     },
+  ready:      { label: 'READY TO TRAIN', color: PHASE_COLORS.ready      },
+  overdue:    { label: 'OVERDUE',        color: PHASE_COLORS.overdue    },
+};
+
+// Coach headline for the hero card — what to do today, in plain words
+const COACH_HEADLINE = {
+  recovering: 'Rest day.',
+  repairing:  'Rest day.',
+  rebuilding: 'Rest day.',
+  growing:    'Rest day.',
+  almost:     'Almost ready.',
+  ready:      'Ready to train.',
+  overdue:    'Train today.',
 };
 
 // ── Readiness helpers ──────────────────────────────────────────────────────────
@@ -40,30 +53,6 @@ const calcReadiness = hours => {
   if (days <= 5.5) return 0.65 + ((days - 4) / 1.5) * 0.35;   // 65% → 100%
   if (days <= 7.5) return 1.0;                                  // peak window
   return Math.max(0.65, 1.0 - ((days - 7.5) / 4.5) * 0.35);   // slowly declining
-};
-
-// Linearly interpolate between two RGB triples
-const _lerp = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
-const _rgb  = ([r, g, b]) => `rgb(${r},${g},${b})`;
-
-// Colour stops: dead → blood red → orange → amber → gold (brand colour)
-const READINESS_STOPS = [
-  [0.00, [18,  18,  18 ]],
-  [0.25, [160, 15,  10 ]],
-  [0.50, [215, 60,  10 ]],
-  [0.70, [235, 115, 15 ]],
-  [0.87, [220, 165, 40 ]],
-  [1.00, [201, 168, 76 ]],
-];
-const readinessColor = r => {
-  const stops = READINESS_STOPS;
-  for (let i = 0; i < stops.length - 1; i++) {
-    if (r <= stops[i + 1][0]) {
-      const t = (r - stops[i][0]) / (stops[i + 1][0] - stops[i][0]);
-      return _rgb(_lerp(stops[i][1], stops[i + 1][1], t));
-    }
-  }
-  return _rgb(stops[stops.length - 1][1]);
 };
 
 // Warning copy based on readiness level
@@ -108,6 +97,19 @@ function getTodayLabel() {
   const n = new Date();
   return `${D[n.getDay()]} · ${M[n.getMonth()]} ${n.getDate()}`;
 }
+function getGreeting() {
+  const h = new Date().getHours();
+  return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+}
+// Plain-language countdown to Mentzer's day-4 minimum
+function fmtReadyIn(h) {
+  if (h === null || h === undefined || isNaN(h)) return null;
+  const left = 96 - h;
+  if (left <= 0) return null;
+  if (left < 12) return 'Ready later today';
+  if (left < 36) return 'Ready tomorrow';
+  return `Ready in about ${Math.round(left / 24)} days`;
+}
 function fmtTimeSince(h) {
   if (h === null || h === undefined || isNaN(h)) return 'No workouts logged yet';
   const d = Math.floor(h/24), hrs = Math.floor(h%24);
@@ -118,9 +120,9 @@ function fmtTimeSince(h) {
 
 // ── HD Score config ────────────────────────────────────────────────────────────
 const PILLAR_DEFS = [
-  { key: 'routine',   icon: 'check-circle', label: 'ROUTINE',   color: '#A78BFA' },
-  { key: 'nutrition', icon: 'target',       label: 'NUTRITION', color: '#34D399' },
-  { key: 'rest',      icon: 'clock',        label: 'REST',      color: '#60A5FA' },
+  { key: 'routine',   icon: 'check-circle', label: 'ROUTINE',   color: COLORS.violet },
+  { key: 'nutrition', icon: 'target',       label: 'NUTRITION', color: COLORS.teal   },
+  { key: 'rest',      icon: 'clock',        label: 'REST',      color: COLORS.blue   },
 ];
 
 const RANGE_OPTIONS = [
@@ -131,7 +133,7 @@ const RANGE_OPTIONS = [
   { label: '6M',  days: 180 },
 ];
 
-const overallColor = s => s >= 80 ? '#4ADE80' : s >= 60 ? '#FBBF24' : '#F87171';
+const overallColor = s => s >= 80 ? COLORS.green : s >= 60 ? COLORS.goldBright : COLORS.red;
 const getScoreLabel = s =>
   s >= 90 ? 'OPTIMAL' : s >= 75 ? 'DISCIPLINED' : s >= 60 ? 'ON TRACK' : s >= 40 ? 'NEEDS WORK' : 'OFF PROGRAM';
 
@@ -153,15 +155,6 @@ const calcRestScore = workouts => {
     else if (days >= 3)                scores.push(20);
     else                               scores.push(0);
   }
-  return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
-};
-
-const calcRoutineScore = (workouts, sets, routine) => {
-  if (!workouts.length || !routine.length) return null;
-  const scores = workouts.map(w => {
-    const unique = new Set(sets.filter(s => s.workout_id === w.id).map(s => s.exercise_name)).size;
-    return Math.min(unique / routine.length, 1) * 100;
-  });
   return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
 };
 
@@ -206,16 +199,14 @@ const getRestTip = rangeWkts => {
   return "Coming back is the hardest step and you've done it. One focused session every 5-7 days is genuinely all Mentzer ever prescribed. You've got everything you need to make this work consistently.";
 };
 
-const getRoutineTip = (rangeWkts, allSets, userRoutine) => {
-  if (!rangeWkts.length || !userRoutine.length) return null;
+const getRoutineTip = (rangeWkts, allSets, sessions) => {
+  const rows = workoutAdherence(rangeWkts, allSets, sessions);
+  if (!rows.length) return null;
 
-  const completions = rangeWkts.map(w => {
-    const unique = new Set(allSets.filter(s => s.workout_id === w.id).map(s => s.exercise_name)).size;
-    return unique / userRoutine.length;
-  });
+  const completions = rows.map(r => r.completion);
   const avg       = completions.reduce((a, b) => a + b, 0) / completions.length;
   const pct       = Math.round(avg * 100);
-  const rLen      = userRoutine.length;
+  const rLen      = Math.max(1, Math.round(rows.reduce((a, r) => a + r.session.exercises.length, 0) / rows.length));
   const avgDone   = Math.max(1, Math.round(avg * rLen));
   const missing   = rLen - avgDone;
   const stdDev    = Math.sqrt(completions.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / completions.length);
@@ -334,7 +325,7 @@ const getConstructiveTip = (scores, rangeWkts, allSets, rangeLogs, calTarget, ra
 
   let tip = null;
   if (weakest.key === 'rest')      tip = getRestTip(rangeWkts);
-  if (weakest.key === 'routine')   tip = getRoutineTip(rangeWkts, allSets, profile?.routine || []);
+  if (weakest.key === 'routine')   tip = getRoutineTip(rangeWkts, allSets, getSessions(profile));
   if (weakest.key === 'nutrition') tip = getNutritionTip(rangeLogs, calTarget, rangeDays, profile?.goal);
 
   return tip;
@@ -345,9 +336,13 @@ function PillarBar({ icon, label, score, pillarColor }) {
   const val    = score ?? 0;
   const active = score !== null;
   return (
-    <View style={pb.row}>
+    <View
+      style={pb.row}
+      accessible
+      accessibilityLabel={`${label.toLowerCase()} score ${active ? `${score} out of 100` : 'not enough data yet'}`}
+    >
       <View style={pb.iconWrap}>
-        <Feather name={icon} size={12} color={active ? pillarColor : COLORS.textDim} />
+        <Feather name={icon} size={13} color={active ? pillarColor : COLORS.textFaint} />
       </View>
       <Text style={pb.label} numberOfLines={1}>{label}</Text>
       <View style={pb.track}>
@@ -360,12 +355,12 @@ function PillarBar({ icon, label, score, pillarColor }) {
   );
 }
 const pb = StyleSheet.create({
-  row:      { flexDirection: 'row', alignItems: 'center', marginBottom: 11 },
+  row:      { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   iconWrap: { width: 22, alignItems: 'center' },
-  label:    { color: COLORS.textDim, fontSize: 9, letterSpacing: 1.5, width: 90, flexShrink: 0 },
-  track:    { flex: 1, height: 3, backgroundColor: COLORS.border, borderRadius: 2, marginHorizontal: 8 },
-  fill:     { height: 3, borderRadius: 2 },
-  val:      { fontSize: 12, fontWeight: FONT.bold, width: 26, textAlign: 'right' },
+  label:    { ...TYPE.overline, color: COLORS.textMuted, width: 92, flexShrink: 0, marginLeft: 4 },
+  track:    { flex: 1, height: 4, backgroundColor: COLORS.border, borderRadius: 2, marginHorizontal: 8 },
+  fill:     { height: 4, borderRadius: 2 },
+  val:      { fontSize: 13, fontWeight: FONT.bold, width: 28, textAlign: 'right', fontVariant: ['tabular-nums'] },
 });
 
 function HDScoreCard({ allWorkouts, allSets, calLogs, profile }) {
@@ -376,12 +371,12 @@ function HDScoreCard({ allWorkouts, allSets, calLogs, profile }) {
   const cutoffDate  = toLocalISO(new Date(cutoffMs));
   const rangeWkts   = allWorkouts.filter(w => wTs(w) >= cutoffMs);
   const rangeLogs   = calLogs.filter(l => l.date >= cutoffDate);
-  const userRoutine = profile?.routine || [];
+  const sessions    = getSessions(profile);
   const calTarget   = calcCalories(profile);
 
   const scores = {
     rest:      calcRestScore(rangeWkts),
-    routine:   calcRoutineScore(rangeWkts, allSets, userRoutine),
+    routine:   calcRoutineScore(rangeWkts, allSets, sessions),
     nutrition: calcNutritionScore(rangeLogs, calTarget, rangeDays),
   };
 
@@ -394,22 +389,23 @@ function HDScoreCard({ allWorkouts, allSets, calLogs, profile }) {
     : null;
 
   return (
-    <View style={hd.wrap}>
-      <Text style={hd.title}>HEAVY DUTY SCORE</Text>
-
+    <View>
       {/* Range chips */}
-      <View style={hd.chips}>
+      <View style={hd.chips} accessibilityRole="tablist">
         {RANGE_OPTIONS.map(opt => {
           const active = rangeDays === opt.days;
           return (
-            <TouchableOpacity
+            <Pressable
               key={opt.days}
               style={[hd.chip, active && hd.chipActive]}
               onPress={() => setRangeDays(opt.days)}
-              activeOpacity={0.7}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={`Last ${opt.label}`}
+              hitSlop={6}
             >
               <Text style={[hd.chipText, active && hd.chipTextActive]}>{opt.label}</Text>
-            </TouchableOpacity>
+            </Pressable>
           );
         })}
       </View>
@@ -417,21 +413,22 @@ function HDScoreCard({ allWorkouts, allSets, calLogs, profile }) {
       {overall !== null ? (
         <>
           {/* Score number + label — tap to open detail */}
-          <TouchableOpacity
-            style={hd.scoreRow}
+          <Pressable
+            style={({ pressed }) => [hd.scoreRow, pressed && { opacity: 0.7 }]}
             onPress={() => navigation.navigate('HDScoreDetail')}
-            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel={`Heavy Duty score ${overall} out of 100, ${label}`}
+            accessibilityHint="Opens the full score breakdown"
           >
             <Text style={[hd.number, { color: numColor }]}>
-              {overall}<Text style={[hd.outOf, { color: numColor }]}>/100</Text>
+              {overall}<Text style={hd.outOf}>/100</Text>
             </Text>
-            <View style={[hd.labelBadge, { borderColor: numColor + '55', backgroundColor: numColor + '18' }]}>
+            <View style={[hd.labelBadge, { borderColor: numColor + '66', backgroundColor: numColor + '1a' }]}>
               <Text style={[hd.labelText, { color: numColor }]}>{label}</Text>
             </View>
-            <Feather name="chevron-right" size={16} color={COLORS.textDim} style={{ marginLeft: 'auto' }} />
-          </TouchableOpacity>
+            <Feather name="chevron-right" size={18} color={COLORS.textDim} style={{ marginLeft: 'auto' }} />
+          </Pressable>
 
-          {/* Pillar bars */}
           <View style={hd.pillars}>
             {PILLAR_DEFS.map(p => (
               <PillarBar key={p.key} icon={p.icon} label={p.label}
@@ -439,31 +436,36 @@ function HDScoreCard({ allWorkouts, allSets, calLogs, profile }) {
             ))}
           </View>
 
-          {tip && <Text style={hd.tipText}>{tip}</Text>}
+          {tip && (
+            <View style={hd.tipBox}>
+              <Feather name="message-circle" size={14} color={COLORS.gold} style={{ marginTop: 2 }} />
+              <Text style={hd.tipText}>{tip}</Text>
+            </View>
+          )}
         </>
       ) : (
-        <Text style={hd.empty}>Log your first workout to see your score.</Text>
+        <Text style={hd.empty}>Log your first workout to see your score. It rates your routine, rest and nutrition.</Text>
       )}
     </View>
   );
 }
 const hd = StyleSheet.create({
-  wrap:           {},
-  title:          { color: COLORS.white, fontSize: 11, fontWeight: FONT.bold, letterSpacing: 3, marginBottom: 10 },
-  chips:          { flexDirection: 'row', gap: 6, marginBottom: 14 },
-  chip:           { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20,
-                    borderWidth: 1, borderColor: COLORS.border },
-  chipActive:     { borderColor: COLORS.gold, backgroundColor: COLORS.goldFaint },
-  chipText:       { color: COLORS.textDim, fontSize: 9, fontWeight: FONT.bold, letterSpacing: 1 },
+  chips:          { flexDirection: 'row', gap: 6, marginBottom: 16 },
+  chip:           { minWidth: 44, height: 32, paddingHorizontal: 10, borderRadius: RADIUS.pill,
+                    borderWidth: 1, borderColor: COLORS.border, alignItems: 'center', justifyContent: 'center' },
+  chipActive:     { borderColor: COLORS.goldBorder, backgroundColor: COLORS.goldFaint },
+  chipText:       { color: COLORS.textDim, fontSize: 12, fontWeight: FONT.bold },
   chipTextActive: { color: COLORS.gold },
-  scoreRow:       { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 18 },
-  number:         { fontSize: 52, fontWeight: FONT.black, letterSpacing: -2 },
-  outOf:          { fontSize: 22, fontWeight: FONT.semibold, letterSpacing: -1 },
-  labelBadge:     { borderRadius: RADIUS.sm, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 4 },
-  labelText:      { fontSize: 10, fontWeight: FONT.black, letterSpacing: 2 },
-  pillars:      { marginBottom: 10 },
-  tipText:      { color: '#bbb', fontSize: 12, lineHeight: 18, marginBottom: 8 },
-  empty:        { color: '#aaa', fontSize: 12, lineHeight: 18 },
+  scoreRow:       { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 18 },
+  number:         { fontSize: 52, fontWeight: FONT.black, letterSpacing: -2, fontVariant: ['tabular-nums'] },
+  outOf:          { fontSize: 20, fontWeight: FONT.semibold, letterSpacing: 0, color: COLORS.textDim },
+  labelBadge:     { borderRadius: RADIUS.pill, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 4 },
+  labelText:      { fontSize: 11, fontWeight: FONT.black, letterSpacing: 1.5 },
+  pillars:        { marginBottom: 4 },
+  tipBox:         { flexDirection: 'row', gap: 10, backgroundColor: COLORS.surfaceDark, borderRadius: RADIUS.md,
+                    padding: 12, marginTop: 6 },
+  tipText:        { ...TYPE.callout, color: COLORS.textSecondary, flex: 1 },
+  empty:          { ...TYPE.callout, color: COLORS.textMuted },
 });
 
 // ── Supercompensation curve ────────────────────────────────────────────────────
@@ -539,10 +541,10 @@ function monotoneCubicPath(pts) {
 }
 // ── Recovery stage bar ─────────────────────────────────────────────────────────
 const STAGE_SEGS = [
-  { key: 'recover', label: 'RECOVERING', from: 0,   to: 2.5, color: '#e05c5c' },
-  { key: 'repair',  label: 'REPAIRING',  from: 2.5, to: 5.0, color: '#e07a3a' },
-  { key: 'rebuild', label: 'REBUILDING', from: 5.0, to: 7.5, color: '#c9a84c' },
-  { key: 'ready',   label: 'READY',      from: 7.5, to: 10,  color: '#4CAF50' },
+  { key: 'recover', label: 'RECOVERING', from: 0,   to: 2.5, color: PHASE_COLORS.recovering },
+  { key: 'repair',  label: 'REPAIRING',  from: 2.5, to: 5.0, color: PHASE_COLORS.repairing  },
+  { key: 'rebuild', label: 'REBUILDING', from: 5.0, to: 7.5, color: PHASE_COLORS.rebuilding },
+  { key: 'ready',   label: 'READY',      from: 7.5, to: 10,  color: PHASE_COLORS.ready      },
 ];
 
 function RecoveryStageBar({ hoursSince }) {
@@ -557,8 +559,7 @@ function RecoveryStageBar({ hoursSince }) {
   const pct = dayFloat !== null ? dayFloat / 10 : null;
 
   return (
-    <View style={st.wrap}>
-      {/* Segmented bar + position marker */}
+    <View style={st.wrap} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
       <View style={{ position: 'relative' }}>
         <View style={st.barRow}>
           {STAGE_SEGS.map((seg, i) => (
@@ -567,15 +568,14 @@ function RecoveryStageBar({ hoursSince }) {
               style={[
                 st.seg,
                 { flex: seg.to - seg.from,
-                  backgroundColor: i === activeIdx ? seg.color + 'bb' : seg.color + '28' },
-                i === 0                        && st.segFirst,
-                i === STAGE_SEGS.length - 1   && st.segLast,
+                  backgroundColor: i === activeIdx ? seg.color : seg.color + '33' },
+                i === 0                      && st.segFirst,
+                i === STAGE_SEGS.length - 1  && st.segLast,
               ]}
             />
           ))}
         </View>
 
-        {/* White tick marker at exact current position */}
         {pct !== null && (
           <View style={st.tickRow} pointerEvents="none">
             <View style={{ flex: Math.max(pct * 100, 0.01) }} />
@@ -585,9 +585,8 @@ function RecoveryStageBar({ hoursSince }) {
         )}
       </View>
 
-      {/* Single active-stage label + day markers */}
       <View style={st.labelRow}>
-        <Text style={st.dayMark}>0d</Text>
+        <Text style={st.dayMark}>Day 0</Text>
         <View style={{ flex: 1, alignItems: 'center' }}>
           {activeIdx >= 0 && (
             <Text style={[st.activeLabel, { color: STAGE_SEGS[activeIdx].color }]}>
@@ -595,27 +594,27 @@ function RecoveryStageBar({ hoursSince }) {
             </Text>
           )}
         </View>
-        <Text style={st.dayMark}>10d</Text>
+        <Text style={st.dayMark}>Day 10</Text>
       </View>
     </View>
   );
 }
 const st = StyleSheet.create({
-  wrap:        { marginTop: 12 },
-  barRow:      { flexDirection: 'row', height: 5, gap: 2 },
-  seg:         { height: 5 },
+  wrap:        { marginTop: 14 },
+  barRow:      { flexDirection: 'row', height: 6, gap: 3 },
+  seg:         { height: 6 },
   segFirst:    { borderTopLeftRadius:  3, borderBottomLeftRadius:  3 },
   segLast:     { borderTopRightRadius: 3, borderBottomRightRadius: 3 },
-  tickRow:     { position: 'absolute', top: -3, left: 0, right: 0,
+  tickRow:     { position: 'absolute', top: -4, left: 0, right: 0,
                  flexDirection: 'row', alignItems: 'center' },
-  tick:        { width: 2, height: 11, borderRadius: 1, backgroundColor: '#fff', opacity: 0.9 },
-  labelRow:    { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
-  activeLabel: { fontSize: 9, fontWeight: FONT.bold, letterSpacing: 1.5 },
-  dayMark:     { color: '#333', fontSize: 8, letterSpacing: 0.5 },
+  tick:        { width: 3, height: 14, borderRadius: 2, backgroundColor: COLORS.white },
+  labelRow:    { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
+  activeLabel: { ...TYPE.overline },
+  dayMark:     { color: COLORS.textDim, fontSize: 11 },
 });
 
 function RecoveryChart({ hoursSince, width }) {
-  const H=114, PL=6, PR=6, PT=20, PB=18;
+  const H=136, PL=6, PR=6, PT=22, PB=20;
   const CW=width-PL-PR, CH=H-PT-PB, MAX_D=10, MIN_C=74, MAX_C=126;
   const toX = d => PL+(d/MAX_D)*CW;
   const toY = c => PT+CH-((c-MIN_C)/(MAX_C-MIN_C))*CH;
@@ -626,40 +625,39 @@ function RecoveryChart({ hoursSince, width }) {
   const dayFloat = hoursSince !== null ? Math.min(hoursSince/24, MAX_D) : null;
   const curX = dayFloat !== null ? toX(dayFloat) : null;
   const curY = dayFloat !== null ? toY(interpCap(dayFloat)) : null;
-  const zones = [
-    { from:0, to:3,    fill:'#e05c5c10' },
-    { from:3, to:4,    fill:'#c9a84c10' },
-    { from:4, to:7,    fill:'#4CAF5016' },
-    { from:7, to:MAX_D,fill:'#28282820' },
-  ];
   if (width <= 0) return null;
   return (
-    <Svg width={width} height={H}>
-      {zones.map((z,i) => (
-        <Rect key={i} x={toX(z.from)} y={PT} width={toX(z.to)-toX(z.from)} height={CH} fill={z.fill} />
-      ))}
-      <Line x1={PL} y1={baseY} x2={PL+CW} y2={baseY} stroke="#3a3a3a" strokeWidth={1} strokeDasharray="4 3" />
-      <SvgText x={PL+3} y={baseY-4} fontSize={7} fill="#444" letterSpacing={1}>BASELINE</SvgText>
-      <Path d={fillPath} fill={`${COLORS.gold}0e`} />
-      <Path d={linePath} fill="none" stroke={COLORS.gold} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
-      <SvgText x={toX(5.5)} y={PT-8} fontSize={7} fill="#4CAF5099" textAnchor="middle" fontWeight="700" letterSpacing={1}>TRAIN WINDOW</SvgText>
-      <Line x1={toX(4)} y1={PT+14} x2={toX(4)} y2={PT+CH} stroke="#4CAF5044" strokeWidth={1} strokeDasharray="2 3" />
-      <SvgText x={toX(4)} y={PT+CH+2} fontSize={6.5} fill="#4CAF5077" textAnchor="middle">MIN</SvgText>
-      <SvgText x={toX(5.5)} y={toY(122)-5} fontSize={7} fill={`${COLORS.gold}99`} textAnchor="middle" fontWeight="700">PEAK</SvgText>
-      {curX !== null && (
-        <>
-          <Line x1={curX} y1={PT} x2={curX} y2={H-PB} stroke={COLORS.gold} strokeWidth={1.5} strokeDasharray="3 3" />
-          <Circle cx={curX} cy={curY} r={10} fill={`${COLORS.gold}1a`} />
-          <Circle cx={curX} cy={curY} r={6}  fill={`${COLORS.gold}33`} />
-          <Circle cx={curX} cy={curY} r={4}  fill={COLORS.gold} />
-        </>
-      )}
-      {[0,2,4,6,8].map(d => (
-        <SvgText key={d} x={toX(d)} y={H-5} fontSize={8} fill="#555" textAnchor="middle">
-          {d === 0 ? 'DAY 0' : `${d}d`}
-        </SvgText>
-      ))}
-    </Svg>
+    <View
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel={
+        dayFloat === null
+          ? 'Recovery curve. No workout logged yet.'
+          : `Recovery curve. You are on day ${Math.floor(dayFloat)}. Mentzer's training window opens on day 4 and peaks around day 5 to 6.`
+      }
+    >
+      <Svg width={width} height={H}>
+        {/* Training window (day 4–7) */}
+        <Rect x={toX(4)} y={PT} width={toX(7)-toX(4)} height={CH} fill={COLORS.green} fillOpacity={0.08} rx={4} />
+        <Line x1={PL} y1={baseY} x2={PL+CW} y2={baseY} stroke={COLORS.borderStrong} strokeWidth={1} strokeDasharray="4 3" />
+        <SvgText x={PL+3} y={baseY-5} fontSize={10} fill={COLORS.textDim}>Baseline</SvgText>
+        <Path d={fillPath} fill={COLORS.gold} fillOpacity={0.08} />
+        <Path d={linePath} fill="none" stroke={COLORS.gold} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+        <SvgText x={toX(5.5)} y={PT-8} fontSize={10} fill={COLORS.green} textAnchor="middle" fontWeight="700">Train window</SvgText>
+        {curX !== null && (
+          <>
+            <Line x1={curX} y1={PT} x2={curX} y2={H-PB} stroke={COLORS.gold} strokeWidth={1.5} strokeDasharray="3 3" />
+            <Circle cx={curX} cy={curY} r={10} fill={COLORS.gold} fillOpacity={0.15} />
+            <Circle cx={curX} cy={curY} r={5}  fill={COLORS.gold} stroke={COLORS.background} strokeWidth={2} />
+          </>
+        )}
+        {[0,2,4,6,8,10].map(d => (
+          <SvgText key={d} x={Math.min(Math.max(toX(d), PL+8), PL+CW-8)} y={H-5} fontSize={10} fill={COLORS.textDim} textAnchor="middle">
+            {`${d}d`}
+          </SvgText>
+        ))}
+      </Svg>
+    </View>
   );
 }
 
@@ -679,20 +677,6 @@ export default function HomeScreen({ navigation }) {
   const [refreshing,     setRefreshing]     = useState(false);
   const [showWarning,    setShowWarning]    = useState(false);
   const [warnReadiness,  setWarnReadiness]  = useState(0);
-
-  const shimmerAnim  = useRef(new Animated.Value(-200)).current;
-  const [animReadiness, setAnimReadiness] = useState(0.01);
-
-  useEffect(() => {
-    if (!DEV_ANIMATE) return;
-    let r = 0.01;
-    const id = setInterval(() => {
-      r = Math.min(r + 0.004, 1);
-      setAnimReadiness(r);
-      if (r >= 1) clearInterval(id);
-    }, 50);
-    return () => clearInterval(id);
-  }, []);
 
   useFocusEffect(useCallback(() => { loadData(); }, []));
 
@@ -731,8 +715,11 @@ export default function HomeScreen({ navigation }) {
 
       const prof    = profRes.data;
       const target  = calcCalories(prof);
-      const wkts    = workoutsRes.data || [];
       const sets    = setsRes.data     || [];
+      // Ignore workout rows with no sets logged (abandoned sessions) — they
+      // would reset the recovery clock and skew the rest/routine scores
+      const loggedIds = new Set(sets.map(st => st.workout_id));
+      const wkts    = (workoutsRes.data || []).filter(w => loggedIds.has(w.id));
       const calLogs = calLogsRes.data  || [];
 
       setProfile(prof);
@@ -772,33 +759,21 @@ export default function HomeScreen({ navigation }) {
 
   const onRefresh = async () => { setRefreshing(true); await loadData(); setRefreshing(false); };
 
+  const neverTrained = hoursSince === null || isNaN(hoursSince);
   const status    = recoveryStatus?.status || 'ready';
   const phase     = PHASE_META[status] || PHASE_META.ready;
-  const isReady   = recoveryStatus?.readyToTrain ?? true;
-  const daysSince = (hoursSince !== null && !isNaN(hoursSince)) ? Math.floor(hoursSince/24) : null;
-  const hourOfDay = (hoursSince !== null && !isNaN(hoursSince)) ? Math.floor(hoursSince%24) : null;
+  const daysSince = !neverTrained ? Math.floor(hoursSince/24) : null;
+  const hourOfDay = !neverTrained ? Math.floor(hoursSince%24) : null;
   const preciseDay = daysSince !== null
     ? (hourOfDay > 0 ? `${daysSince}d ${hourOfDay}h` : `${daysSince}d`)
-    : '0d';
+    : '—';
   const firstName = profile?.name?.split(' ')[0] || null;
-  const readiness = DEV_ANIMATE ? animReadiness : calcReadiness(hoursSince);
+  const readiness = calcReadiness(hoursSince);
   const optimal   = readiness >= 0.87;
-
-  useEffect(() => {
-    let cancelled = false;
-    const runShimmer = () => {
-      if (cancelled) return;
-      shimmerAnim.setValue(-220);
-      Animated.sequence([
-        Animated.timing(shimmerAnim, { toValue: 550, duration: 600, useNativeDriver: true }),
-        Animated.delay(2200),
-      ]).start(({ finished }) => { if (finished && !cancelled) runShimmer(); });
-    };
-    if (optimal) { runShimmer(); }
-    else { shimmerAnim.setValue(-220); }
-    return () => { cancelled = true; };
-  }, [optimal]);
-
+  // Clear to train once Mentzer's day-4 minimum is reached (recoveryStatus.readyToTrain)
+  // or at peak readiness; only warn while genuinely still recovering
+  const clearToTrain = neverTrained || optimal || !!recoveryStatus?.readyToTrain;
+  const readyIn   = fmtReadyIn(hoursSince);
 
   // Header computed values — only count workouts with at least one set logged
   const workedOutIds = new Set(allSets.map(s => s.workout_id));
@@ -814,22 +789,20 @@ export default function HomeScreen({ navigation }) {
     return weeks < 1 ? 1 : weeks;
   })();
   const headerMilestone = totalSessions === 0
-    ? 'FIRST WORKOUT AWAITS'
+    ? null
     : weeksOnProgram
-      ? `WEEK ${weeksOnProgram} · ${totalSessions} SESSION${totalSessions === 1 ? '' : 'S'}`
-      : `${totalSessions} SESSION${totalSessions === 1 ? '' : 'S'} LOGGED`;
-  const headerTagline = (() => {
-    if (!recoveryStatus) return null;
-    const s = recoveryStatus.status;
-    if (s === 'ready')     return 'YOUR WINDOW IS OPEN. MAKE IT COUNT.';
-    if (s === 'almost')    return "ALMOST THERE. ONE MORE DAY WINS.";
-    if (s === 'rebuilding') return 'SUPERCOMPENSATION IN PROGRESS.';
-    if (s === 'growing')   return 'MUSCLES ARE REBUILDING. TRUST THE PROCESS.';
-    if (s === 'repairing') return 'REPAIR PHASE. PROTECT YOUR REST.';
-    if (s === 'recovering') return 'RECOVERY STARTED. REST IS THE WORK.';
-    if (s === 'overdue')   return "DON'T WAIT TOO LONG. YOUR PEAK IS FADING.";
-    return 'REST IS WHERE THE GROWTH HAPPENS.';
-  })();
+      ? `Week ${weeksOnProgram} · ${totalSessions} session${totalSessions === 1 ? '' : 's'}`
+      : `${totalSessions} session${totalSessions === 1 ? '' : 's'} logged`;
+
+  // Coach card copy
+  const heroOverline = neverTrained
+    ? 'DAY ONE'
+    : `DAY ${daysSince} · ${phase.label}`;
+  const heroTitle = neverTrained ? 'Your first session.' : (COACH_HEADLINE[status] || 'Rest day.');
+  const heroBody  = neverTrained
+    ? 'One set per exercise, taken to absolute muscular failure. Then leave, and let your body grow.'
+    : recoveryStatus?.message || '';
+  const heroColor = neverTrained ? COLORS.gold : phase.color;
 
   // Nutrition card
   const remaining = calTarget ? calTarget - todayConsumed : null;
@@ -838,51 +811,83 @@ export default function HomeScreen({ navigation }) {
   const GOAL_LABEL = { bulk:'GAINING', cut:'CUTTING', recomp:'RECOMP', maintain:'MAINTAIN' };
   const goalLabel  = GOAL_LABEL[profile?.goal] || null;
 
+  const handleStart = () => {
+    if (clearToTrain) { navigation.navigate('Workout'); return; }
+    setWarnReadiness(readiness);
+    setShowWarning(true);
+  };
+  const warning = getWarningCopy(warnReadiness);
+
   return (
     <View style={s.container}>
       <ScrollView
-        contentContainerStyle={[s.content, { paddingBottom: 80 + insets.bottom }]}
+        contentContainerStyle={{ paddingTop: insets.top + 16, paddingBottom: 32 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.gold} />}
       >
         {/* Header */}
         <View style={s.header}>
-          <View style={s.headerLeft}>
-            <Text style={s.greeting}>{getTodayLabel()}</Text>
-            <Text style={s.heroName}>
-              {firstName ? `WELCOME BACK, ${firstName.toUpperCase()}!` : 'WELCOME, ATHLETE!'}
+          <View style={{ flex: 1 }}>
+            <Text style={s.date}>{getTodayLabel()}</Text>
+            <Text style={s.greeting} accessibilityRole="header">
+              {getGreeting()}{firstName ? `, ${firstName}` : ''}.
             </Text>
-            <Text style={s.milestone}>{headerMilestone}</Text>
-            {headerTagline && (
-              <View style={s.taglineRow}>
-                <View style={[s.taglineDot, { backgroundColor: phase?.color || COLORS.gold }]} />
-                <Text style={s.tagline}>{headerTagline}</Text>
-              </View>
-            )}
+            {headerMilestone && <Text style={s.milestone}>{headerMilestone}</Text>}
           </View>
-          <Text style={s.logo}>MENTZER</Text>
+          <Text style={s.logo} accessibilityElementsHidden importantForAccessibility="no">MENTZER</Text>
         </View>
 
-        {/* Recovery Curve */}
-        <Card style={[s.section, s.cardRecovery, { borderLeftColor: '#3B82F6', backgroundColor: '#0e1420' }]}>
-          <View style={s.row}>
-            <Text style={s.label} numberOfLines={1}>RECOVERY CURVE</Text>
-            <Text style={s.meta} numberOfLines={1} adjustsFontSizeToFit>{fmtTimeSince(hoursSince)}</Text>
+        {/* Coach card — what to do today */}
+        <View style={[s.hero, { borderColor: heroColor + '55' }]}>
+          <View style={[s.heroGlow, { backgroundColor: heroColor }]} pointerEvents="none" />
+          <View style={s.heroTop}>
+            <View style={[s.heroDot, { backgroundColor: heroColor }]} />
+            <Text style={[s.heroOverline, { color: heroColor }]}>{heroOverline}</Text>
           </View>
+          <Text style={s.heroTitle} accessibilityRole="header">{heroTitle}</Text>
+          {!neverTrained && readyIn && <Text style={s.heroReadyIn}>{readyIn}</Text>}
+          <Text style={s.heroBody}>{heroBody}</Text>
+
+          {!neverTrained && (
+            <View
+              style={s.readyRow}
+              accessible
+              accessibilityRole="progressbar"
+              accessibilityLabel="Recovery"
+              accessibilityValue={{ min: 0, max: 100, now: Math.round(readiness * 100), text: `${Math.round(readiness * 100)} percent recovered` }}
+            >
+              <View style={s.readyTrack}>
+                <View style={[s.readyFill, { width: `${readiness * 100}%`, backgroundColor: heroColor }]} />
+              </View>
+              <Text style={[s.readyPct, { color: heroColor }]}>{Math.round(readiness * 100)}%</Text>
+            </View>
+          )}
+
+          <Button
+            title="START WORKOUT"
+            icon="play"
+            variant={clearToTrain ? 'primary' : 'secondary'}
+            onPress={handleStart}
+            hint={clearToTrain ? undefined : 'You are still recovering. A warning will be shown first.'}
+            style={{ marginTop: SPACING.lg }}
+          />
+        </View>
+
+        {/* Recovery curve */}
+        <SectionTitle title="RECOVERY" right={<Text style={s.meta}>{fmtTimeSince(hoursSince)}</Text>} />
+        <Card style={s.section}>
           <View onLayout={e => setRecoveryWidth(e.nativeEvent.layout.width)}>
             {recoveryWidth > 0 && <RecoveryChart hoursSince={hoursSince} width={recoveryWidth} />}
           </View>
           <RecoveryStageBar hoursSince={hoursSince} />
-          <View style={[s.row, { marginTop: SPACING.md, marginBottom: 0 }]}>
-            <View style={[s.phasePill, { borderColor: phase.color+'55', backgroundColor: phase.color+'18' }]}>
-              <Text style={[s.phasePillText, { color: phase.color }]}>{phase.label}</Text>
-            </View>
+          <View style={s.dayRow}>
+            <Text style={s.dayLabel}>Since last session</Text>
             <Text style={s.dayCount}>{preciseDay}</Text>
           </View>
-          <Text style={[s.advice, { marginTop: 6 }]}>{recoveryStatus?.message || ''}</Text>
         </Card>
 
         {/* HD Score */}
-        <Card style={[s.section, s.cardAccentGold, { backgroundColor: '#1a1500' }]}>
+        <SectionTitle title="HEAVY DUTY SCORE" />
+        <Card style={s.section}>
           <HDScoreCard
             allWorkouts={allWorkouts}
             allSets={allSets}
@@ -892,49 +897,55 @@ export default function HomeScreen({ navigation }) {
         </Card>
 
         {/* Nutrition — tappable calorie counter */}
-        <TouchableOpacity activeOpacity={0.8} onPress={() => navigation.navigate('CalorieTracker')}>
-          <Card style={[s.section, { borderLeftWidth: 3, borderLeftColor: calOver ? COLORS.red : '#34D399', backgroundColor: '#101614' }]}>
-            <View style={s.row}>
-              <Text style={s.label}>DAILY CALORIES</Text>
-              <View style={s.row}>
-                {goalLabel && (
-                  <View style={[s.goalBadge, { marginRight: 8 }]}>
-                    <Text style={s.goalText}>{goalLabel}</Text>
-                  </View>
-                )}
+        <SectionTitle title="TODAY'S CALORIES" right={goalLabel ? (
+          <View style={s.goalBadge}><Text style={s.goalText}>{goalLabel}</Text></View>
+        ) : null} />
+        <Card
+          style={s.section}
+          onPress={() => navigation.navigate('CalorieTracker')}
+          accessibilityLabel={calTarget
+            ? `Calories. ${Math.abs(remaining)} ${calOver ? 'over target' : 'left today'}. ${todayConsumed} of ${calTarget} eaten.`
+            : 'Calories'}
+          accessibilityHint="Opens the calorie log"
+        >
+          {calTarget ? (
+            <>
+              <View style={s.calRow}>
+                <Text style={[s.calNum, calOver && { color: COLORS.red }]}>
+                  {Math.abs(remaining).toLocaleString()}
+                </Text>
+                <Text style={s.calUnit}>{calOver ? 'kcal over' : 'kcal left'}</Text>
                 <View style={s.logBtn}>
-                  <Text style={s.logBtnText}>+ LOG</Text>
+                  <Feather name="plus" size={14} color={COLORS.teal} />
+                  <Text style={s.logBtnText}>LOG</Text>
                 </View>
               </View>
-            </View>
+              <View style={s.track}>
+                <View style={[s.trackFill, {
+                  width: `${calPct * 100}%`,
+                  backgroundColor: calOver ? COLORS.red : COLORS.teal,
+                }]} />
+              </View>
+              <View style={s.calMetaRow}>
+                <Text style={s.meta}>{todayConsumed.toLocaleString()} eaten</Text>
+                <Text style={s.meta}>{calTarget.toLocaleString()} target</Text>
+              </View>
+            </>
+          ) : (
+            <Text style={s.empty}>Complete your profile to see your calorie target.</Text>
+          )}
+        </Card>
 
-            {calTarget ? (
-              <>
-                <View style={s.calRow}>
-                  <Text style={[s.calNum, calOver && { color: COLORS.red }]}>
-                    {Math.abs(remaining).toLocaleString()}
-                  </Text>
-                  <Text style={s.calUnit}>{calOver ? 'kcal over' : 'kcal left'}</Text>
-                </View>
-                <View style={s.track}>
-                  <View style={[s.trackFill, {
-                    width: `${calPct * 100}%`,
-                    backgroundColor: '#34D399',
-                  }]} />
-                </View>
-                <View style={s.row}>
-                  <Text style={s.meta}>{todayConsumed.toLocaleString()} consumed</Text>
-                  <Text style={s.meta}>{calTarget.toLocaleString()} target</Text>
-                </View>
-              </>
-            ) : (
-              <Text style={s.empty}>Complete onboarding to see your calorie target.</Text>
-            )}
-          </Card>
-        </TouchableOpacity>
+        {/* Coach's note */}
+        {quote ? (
+          <View style={s.note}>
+            <Text style={s.noteLabel}>PRINCIPLE</Text>
+            <Text style={s.noteText}>{quote}</Text>
+          </View>
+        ) : null}
       </ScrollView>
 
-      {/* Warning modal */}
+      {/* Early-training warning */}
       <Modal
         visible={showWarning}
         transparent
@@ -942,172 +953,91 @@ export default function HomeScreen({ navigation }) {
         onRequestClose={() => setShowWarning(false)}
       >
         <View style={wm.overlay}>
-          <View style={wm.sheet}>
-            {/* Warning icon */}
+          <View style={wm.sheet} accessibilityViewIsModal>
             <View style={wm.iconWrap}>
-              <Feather name="alert-triangle" size={28} color="#E07A3A" />
+              <Feather name="alert-triangle" size={26} color={COLORS.orange} />
             </View>
-
-            {/* Copy */}
-            <Text style={wm.title}>{getWarningCopy(warnReadiness).title}</Text>
-            <Text style={wm.message}>{getWarningCopy(warnReadiness).message}</Text>
-
-            {/* Divider */}
-            <View style={wm.divider} />
-
-            {/* Buttons */}
-            <View style={wm.btnRow}>
-              <TouchableOpacity
-                style={wm.btnCancel}
-                onPress={() => setShowWarning(false)}
-                activeOpacity={0.7}
-              >
-                <Text style={wm.btnCancelText}>REST UP</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={wm.btnConfirm}
-                onPress={() => { setShowWarning(false); navigation.navigate('Workout'); }}
-                activeOpacity={0.7}
-              >
-                <Text style={wm.btnConfirmText}>TRAIN ANYWAY</Text>
-              </TouchableOpacity>
-            </View>
+            <Text style={wm.title} accessibilityRole="header">{warning.title}</Text>
+            <Text style={wm.message}>{warning.message}</Text>
+            <Button title="REST UP" onPress={() => setShowWarning(false)} />
+            <Button
+              title="Train anyway"
+              variant="ghost"
+              size="md"
+              onPress={() => { setShowWarning(false); navigation.navigate('Workout'); }}
+              style={{ marginTop: SPACING.sm }}
+              textStyle={{ color: COLORS.orange, letterSpacing: 0.5 }}
+            />
           </View>
         </View>
       </Modal>
-
-      {/* Pinned START WORKOUT */}
-      <View style={s.trainBar}>
-        {(() => {
-          const fillColor  = readinessColor(readiness);
-          const handlePress = () => {
-            if (optimal) { navigation.navigate('Workout'); return; }
-            setWarnReadiness(readiness);
-            setShowWarning(true);
-          };
-          return (
-            <TouchableOpacity
-              style={[s.trainBtn, { height: 58 }]}
-              onPress={handlePress}
-              activeOpacity={0.82}
-            >
-              {/* Coloured fill */}
-              <View style={[s.trainFill, { width: `${readiness * 100}%`, backgroundColor: fillColor }]} />
-              {/* Shimmer halo — wide soft strip behind */}
-              {optimal && (
-                <Animated.View
-                  pointerEvents="none"
-                  style={[s.shimmerHalo, { transform: [{ translateX: shimmerAnim }, { rotate: '15deg' }] }]}
-                />
-              )}
-              {/* Shimmer core — bright narrow strip */}
-              {optimal && (
-                <Animated.View
-                  pointerEvents="none"
-                  style={[s.shimmerCore, { transform: [{ translateX: shimmerAnim }, { rotate: '15deg' }] }]}
-                />
-              )}
-              {/* Text */}
-              <View style={s.trainTextWrap}>
-                <Text style={s.trainBtnText}>START WORKOUT</Text>
-                {!optimal && (
-                  <Text style={s.trainBtnSub}>
-                    {readiness < 0.35 ? 'RECOVERING' : readiness < 0.65 ? 'REPAIRING' : 'ALMOST READY'}
-                  </Text>
-                )}
-              </View>
-            </TouchableOpacity>
-          );
-        })()}
-      </View>
     </View>
   );
 }
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
-// Shared card row styles used by both HDScoreCard and main screen
-const sc = StyleSheet.create({
-  row:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  label: { color: '#ccc', fontSize: 10, fontWeight: FONT.semibold, letterSpacing: 2 },
-  meta:  { color: '#999', fontSize: 10, letterSpacing: 1 },
-  empty: { color: '#aaa', fontSize: 12, lineHeight: 18 },
-});
-
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
-  content:   { paddingBottom: 20 },
 
-  header:     { flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start',
-                paddingTop:52, paddingHorizontal:SPACING.screen, paddingBottom:20,
-                overflow:'hidden' },
-  headerGlow: { position:'absolute', top:0, left:0, right:0, bottom:0 },
-  headerLeft:  { flex:1 },
-  greeting:    { color:'#555', fontSize:9, fontWeight:FONT.bold, letterSpacing:3, marginBottom:8 },
-  heroName:    { color:COLORS.white, fontSize:26, fontWeight:FONT.black, letterSpacing:0.5, marginBottom:7 },
-  milestone:   { color:COLORS.gold, fontSize:9, fontWeight:FONT.bold, letterSpacing:3, marginBottom:8 },
-  taglineRow:  { flexDirection:'row', alignItems:'center', gap:6 },
-  taglineDot:  { width:4, height:4, borderRadius:2 },
-  tagline:     { color:'#888', fontSize:9, fontWeight:FONT.semibold, letterSpacing:2, flex:1 },
-  logo:        { fontSize:9, fontWeight:FONT.black, color:COLORS.gold, letterSpacing:5, marginTop:4 },
+  header:    { flexDirection: 'row', alignItems: 'flex-start',
+               paddingHorizontal: SPACING.screen, paddingBottom: SPACING.lg },
+  date:      { ...TYPE.overline, color: COLORS.textDim, marginBottom: 6 },
+  greeting:  { ...TYPE.title, fontSize: 26, lineHeight: 32, color: COLORS.white },
+  milestone: { ...TYPE.caption, color: COLORS.gold, marginTop: 4 },
+  logo:      { fontSize: 11, fontWeight: FONT.black, color: COLORS.gold, letterSpacing: 4, marginTop: 2 },
 
-  section:        { marginHorizontal:SPACING.screen, marginBottom:8 },
-  cardRecovery:   { borderLeftWidth:3 },
-  cardAccentGold: { borderLeftWidth:3, borderLeftColor:COLORS.gold },
-  row:       { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:10 },
-  label:     { color:'#ccc', fontSize:10, fontWeight:FONT.semibold, letterSpacing:2 },
-  meta:      { color:'#999', fontSize:10, letterSpacing:1 },
-  empty:     { color:'#aaa', fontSize:12, lineHeight:18 },
+  // Coach card
+  hero:        { marginHorizontal: SPACING.screen, padding: SPACING.lg, borderRadius: RADIUS.xl,
+                 backgroundColor: COLORS.surface, borderWidth: 1, overflow: 'hidden' },
+  heroGlow:    { position: 'absolute', top: -120, right: -80, width: 240, height: 240,
+                 borderRadius: 120, opacity: 0.08 },
+  heroTop:     { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  heroDot:     { width: 8, height: 8, borderRadius: 4 },
+  heroOverline:{ ...TYPE.overline },
+  heroTitle:   { ...TYPE.display, color: COLORS.white },
+  heroReadyIn: { ...TYPE.heading, color: COLORS.textSecondary, marginTop: 2 },
+  heroBody:    { ...TYPE.body, color: COLORS.textMuted, marginTop: 10 },
+  readyRow:    { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: SPACING.lg },
+  readyTrack:  { flex: 1, height: 8, borderRadius: 4, backgroundColor: COLORS.border, overflow: 'hidden' },
+  readyFill:   { height: 8, borderRadius: 4 },
+  readyPct:    { fontSize: 15, fontWeight: FONT.black, fontVariant: ['tabular-nums'], minWidth: 44, textAlign: 'right' },
 
-  phasePill:     { alignSelf:'flex-start', borderRadius:RADIUS.sm, borderWidth:1, paddingHorizontal:9, paddingVertical:3 },
-  phasePillText: { fontSize:9, fontWeight:FONT.black, letterSpacing:2 },
-  dayCount:      { color:COLORS.white, fontSize:28, fontWeight:FONT.black, letterSpacing:-0.5 },
-  advice:        { color:'#bbb', fontSize:11, lineHeight:16 },
+  section:   { marginHorizontal: SPACING.screen },
+  meta:      { color: COLORS.textDim, fontSize: 12 },
+  empty:     { ...TYPE.callout, color: COLORS.textMuted },
+
+  dayRow:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginTop: SPACING.md },
+  dayLabel:  { ...TYPE.callout, color: COLORS.textMuted },
+  dayCount:  { color: COLORS.white, fontSize: 24, fontWeight: FONT.black, fontVariant: ['tabular-nums'] },
 
   // Nutrition card
-  calRow:    { flexDirection:'row', alignItems:'baseline', marginBottom:10 },
-  calNum:    { color:COLORS.white, fontSize:42, fontWeight:FONT.black, letterSpacing:-1 },
-  calUnit:   { color:'#aaa', fontSize:12, marginLeft:8, fontWeight:FONT.semibold },
-  track:     { height:4, backgroundColor:COLORS.border, borderRadius:2, marginBottom:8 },
-  trackFill: { height:4, borderRadius:2 },
-  goalBadge: { backgroundColor:COLORS.goldFaint, borderRadius:RADIUS.sm, paddingHorizontal:9, paddingVertical:3, borderWidth:1, borderColor:COLORS.goldBorder },
-  goalText:  { color:COLORS.gold, fontSize:9, letterSpacing:1.5, fontWeight:FONT.semibold },
-  logBtn:    { backgroundColor:'#34D39922', borderRadius:RADIUS.sm, paddingHorizontal:10, paddingVertical:4, borderWidth:1, borderColor:'#34D39966' },
-  logBtnText:{ color:'#34D399', fontSize:9, fontWeight:FONT.black, letterSpacing:2 },
+  calRow:    { flexDirection: 'row', alignItems: 'baseline', marginBottom: 12 },
+  calNum:    { color: COLORS.white, fontSize: 40, fontWeight: FONT.black, letterSpacing: -1, fontVariant: ['tabular-nums'] },
+  calUnit:   { color: COLORS.textMuted, fontSize: 14, marginLeft: 8, fontWeight: FONT.medium, flex: 1 },
+  calMetaRow:{ flexDirection: 'row', justifyContent: 'space-between' },
+  track:     { height: 6, backgroundColor: COLORS.border, borderRadius: 3, marginBottom: 10, overflow: 'hidden' },
+  trackFill: { height: 6, borderRadius: 3 },
+  goalBadge: { backgroundColor: COLORS.goldFaint, borderRadius: RADIUS.pill, paddingHorizontal: 10, paddingVertical: 3,
+               borderWidth: 1, borderColor: COLORS.goldBorder },
+  goalText:  { color: COLORS.gold, fontSize: 11, letterSpacing: 1.2, fontWeight: FONT.semibold },
+  logBtn:    { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'center',
+               backgroundColor: COLORS.teal + '1f', borderRadius: RADIUS.pill, paddingHorizontal: 12, paddingVertical: 6 },
+  logBtnText:{ color: COLORS.teal, fontSize: 12, fontWeight: FONT.black, letterSpacing: 1 },
 
-  // Train bar
-  trainBar:      { position:'absolute', bottom:0, left:0, right:0,
-                   borderTopWidth:1, borderTopColor:'rgba(255,255,255,0.12)' },
-  trainBtn:      { borderRadius:0, overflow:'hidden', backgroundColor:'#111' },
-  trainFill:     { position:'absolute', left:0, top:0, bottom:0 },
-  shimmerHalo:   { position:'absolute', top:-30, bottom:-30, width:110,
-                   backgroundColor:'rgba(255,255,255,0.10)' },
-  shimmerCore:   { position:'absolute', top:-30, bottom:-30, width:44,
-                   backgroundColor:'rgba(255,255,255,0.38)', marginLeft:33 },
-  trainTextWrap: { ...StyleSheet.absoluteFillObject, alignItems:'center', justifyContent:'center', gap:3, paddingBottom: 0 },
-  trainBtnText:  { color:'#fff', fontSize:14, fontWeight:FONT.black, letterSpacing:3 },
-  trainBtnSub:   { color:'rgba(255,255,255,0.4)', fontSize:8, fontWeight:FONT.bold, letterSpacing:2 },
+  // Principle
+  note:      { marginHorizontal: SPACING.screen, marginTop: SPACING.xl, paddingLeft: SPACING.md,
+               borderLeftWidth: 2, borderLeftColor: COLORS.goldBorder },
+  noteLabel: { ...TYPE.overline, color: COLORS.gold, marginBottom: 6 },
+  noteText:  { ...TYPE.body, color: COLORS.textSecondary, fontStyle: 'italic' },
 });
 
 const wm = StyleSheet.create({
-  overlay:      { flex:1, backgroundColor:'rgba(0,0,0,0.75)',
-                  justifyContent:'center', alignItems:'center', paddingHorizontal:28 },
-  sheet:        { width:'100%', backgroundColor:'#161410', borderRadius:RADIUS.xl,
-                  borderWidth:1, borderColor:'#E07A3A44',
-                  paddingTop:28, paddingHorizontal:24, paddingBottom:20 },
-  iconWrap:     { width:52, height:52, borderRadius:26, backgroundColor:'#E07A3A18',
-                  borderWidth:1, borderColor:'#E07A3A44',
-                  alignItems:'center', justifyContent:'center', marginBottom:16 },
-  title:        { color:COLORS.white, fontSize:14, fontWeight:FONT.black,
-                  letterSpacing:2.5, marginBottom:10 },
-  message:      { color:'#888', fontSize:12, lineHeight:19, marginBottom:20 },
-  divider:      { height:1, backgroundColor:COLORS.border, marginBottom:16 },
-  btnRow:       { flexDirection:'row', gap:10 },
-  btnCancel:    { flex:1, paddingVertical:13, borderRadius:RADIUS.md,
-                  borderWidth:1, borderColor:COLORS.border, alignItems:'center' },
-  btnCancelText:{ color:COLORS.textDim, fontSize:11, fontWeight:FONT.black, letterSpacing:2 },
-  btnConfirm:   { flex:1, paddingVertical:13, borderRadius:RADIUS.md,
-                  backgroundColor:'#3a1010', borderWidth:1, borderColor:'#e05c5c55',
-                  alignItems:'center' },
-  btnConfirmText:{ color:'#e05c5c', fontSize:11, fontWeight:FONT.black, letterSpacing:2 },
+  overlay:  { flex:1, backgroundColor: COLORS.overlay,
+              justifyContent:'center', alignItems:'center', paddingHorizontal: SPACING.xl },
+  sheet:    { width:'100%', maxWidth: 420, backgroundColor: COLORS.surface, borderRadius: RADIUS.xl,
+              borderWidth:1, borderColor: COLORS.orange + '55', padding: SPACING.xl },
+  iconWrap: { width:52, height:52, borderRadius:26, backgroundColor: COLORS.orange + '1f',
+              alignItems:'center', justifyContent:'center', marginBottom:16 },
+  title:    { ...TYPE.title, color: COLORS.white, marginBottom: 10 },
+  message:  { ...TYPE.body, color: COLORS.textMuted, marginBottom: SPACING.xl },
 });

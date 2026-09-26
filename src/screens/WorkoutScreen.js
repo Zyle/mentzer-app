@@ -186,6 +186,7 @@ export default function WorkoutScreen({ navigation }) {
   const cancelWorkout = () => {
     const hasLogged = Object.values(setData).some(d => d.logged);
     const doCancel = () => {
+      discardEmptyWorkout();
       clearInterval(workoutTimerRef.current);
       clearInterval(restTimerRef.current);
       setPhase('picking');
@@ -408,11 +409,30 @@ export default function WorkoutScreen({ navigation }) {
   };
 
   // ── Finish workout ────────────────────────────────────────────────────────────
+  // A workout row with no sets (e.g. every set was edited away) would reset the
+  // recovery clock and drag down the HD score, so remove it.
+  const discardEmptyWorkout = async () => {
+    const hasLogged = Object.values(setData).some(d => d.logged);
+    const pending = workoutIdRef.current;
+    if (hasLogged || !pending) return;
+    try {
+      const wid = await pending;
+      if (wid) await supabase.from('workouts').delete().eq('id', wid);
+    } catch (e) {
+      console.error('discardEmptyWorkout error:', e);
+    }
+  };
+
   const doFinish = async () => {
     setSaveModal(false);
     clearInterval(workoutTimerRef.current);
     clearInterval(restTimerRef.current);
-    try { await scheduleRecoveryNotificationsIfEnabled(); } catch (_) {}
+    const hasLogged = Object.values(setData).some(d => d.logged);
+    if (hasLogged) {
+      try { await scheduleRecoveryNotificationsIfEnabled(); } catch (_) {}
+    } else {
+      await discardEmptyWorkout();
+    }
     navigation.navigate('Main');
   };
 

@@ -2,15 +2,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Text, View, ActivityIndicator, Platform, StyleSheet, Animated, AppState } from 'react-native';
-import { Feather } from '@expo/vector-icons';
-import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Text, View, ActivityIndicator, Platform, StyleSheet, Animated, AppState, Easing } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as NavigationBar from 'expo-navigation-bar';
 import { supabase } from './src/lib/supabase';
 import { registerForPushNotifications } from './src/lib/notifications';
 import { saveRoutineType } from './src/lib/programme';
 import ErrorBoundary from './src/components/ErrorBoundary';
+import TabBar from './src/components/TabBar';
 import { COLORS, FONT } from './src/theme';
 
 import LoginScreen from './src/screens/LoginScreen';
@@ -30,62 +30,33 @@ import SettingsScreen from './src/screens/SettingsScreen';
 const Stack = createNativeStackNavigator();
 const Tab   = createBottomTabNavigator();
 
-// Tab icon: Feather icon with a gold pill behind the active tab
-function TabIcon({ name, color, focused }) {
-  return (
-    <View style={[ti.wrap, focused && ti.wrapActive]}>
-      <Feather name={name} size={20} color={color} />
-    </View>
-  );
-}
-const ti = StyleSheet.create({
-  wrap:       { width: 52, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
-  wrapActive: { backgroundColor: COLORS.goldFaint },
-});
-
 const sp = StyleSheet.create({
   overlay:  { ...StyleSheet.absoluteFillObject,
               backgroundColor: COLORS.background, justifyContent: 'center', alignItems: 'center', zIndex: 999 },
-  wordmark: { color: COLORS.gold, fontSize: 34, fontWeight: FONT.black, letterSpacing: 12 },
+  wordmark: { color: COLORS.gold, fontSize: 36, fontWeight: FONT.black, letterSpacing: 12, marginRight: -12 },
+  rule:     { width: 120, height: 2, borderRadius: 1, backgroundColor: COLORS.gold, marginTop: 14 },
   sub:      { color: COLORS.textDim, fontSize: 11, fontWeight: FONT.semibold, letterSpacing: 6, marginTop: 10 },
 });
 
 const TABS = [
-  { name: 'Home',     label: 'Today',    icon: 'sun',         component: HomeScreen },
+  { name: 'Home',     label: 'Today',    icon: 'home',        component: HomeScreen },
   { name: 'Progress', label: 'Progress', icon: 'trending-up', component: ProgressScreen },
-  { name: 'History',  label: 'History',  icon: 'calendar',    component: WorkoutHistoryScreen },
+  { name: 'History',  label: 'History',  icon: 'clock',       component: WorkoutHistoryScreen },
   { name: 'Profile',  label: 'Profile',  icon: 'user',        component: ProfileScreen },
 ];
 
 function TabNavigator() {
-  const insets = useSafeAreaInsets();
   return (
     <Tab.Navigator
-      screenOptions={{
-        headerShown: false,
-        tabBarStyle: {
-          backgroundColor: COLORS.background,
-          borderTopColor: COLORS.border,
-          borderTopWidth: 1,
-          paddingBottom: 6 + insets.bottom,
-          paddingTop: 8,
-          height: 66 + insets.bottom,
-        },
-        tabBarActiveTintColor: COLORS.gold,
-        tabBarInactiveTintColor: COLORS.textDim,
-        tabBarLabelStyle: { fontSize: 11, fontWeight: FONT.semibold, marginTop: 2 },
-      }}
+      tabBar={props => <TabBar {...props} />}
+      screenOptions={{ headerShown: false }}
     >
       {TABS.map(t => (
         <Tab.Screen
           key={t.name}
           name={t.name}
           component={t.component}
-          options={{
-            tabBarLabel: t.label,
-            tabBarAccessibilityLabel: `${t.label} tab`,
-            tabBarIcon: ({ color, focused }) => <TabIcon name={t.icon} color={color} focused={focused} />,
-          }}
+          options={{ tabBarLabel: t.label, tabBarIconName: t.icon }}
         />
       ))}
     </Tab.Navigator>
@@ -99,10 +70,21 @@ const DEV_SCREEN = false;
 export default function App() {
   return (
     <SafeAreaProvider>
-      <AppContent />
+      {/* On the web (preview), keep a phone-width column instead of stretching */}
+      <View style={Platform.OS === 'web' ? webFrame.outer : { flex: 1 }}>
+        <View style={Platform.OS === 'web' ? webFrame.inner : { flex: 1 }}>
+          <AppContent />
+        </View>
+      </View>
     </SafeAreaProvider>
   );
 }
+
+const webFrame = StyleSheet.create({
+  outer: { flex: 1, backgroundColor: '#000', alignItems: 'center' },
+  inner: { flex: 1, width: '100%', maxWidth: 480, backgroundColor: COLORS.background,
+           borderLeftWidth: 1, borderRightWidth: 1, borderColor: COLORS.border, overflow: 'hidden' },
+});
 
 function AppContent() {
   const [session, setSession]                   = useState(null);
@@ -111,7 +93,8 @@ function AppContent() {
   const [needsRoutine, setNeedsRoutine]         = useState(false);
   const [selectedProgramme, setSelectedProgramme] = useState(null);
   const [showSplash, setShowSplash]             = useState(false);
-  const splashOpacity = useRef(new Animated.Value(0)).current;
+  const splashOpacity = useRef(new Animated.Value(1)).current;
+  const splashIntro   = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -188,13 +171,19 @@ function AppContent() {
 
   useEffect(() => {
     if (!loading && session && !needsOnboarding && !needsRoutine) {
-      splashOpacity.setValue(0);
+      // Cover instantly, draw the wordmark + gold rule, then reveal the app
+      const native = Platform.OS !== 'web';
+      splashOpacity.setValue(1);
+      splashIntro.setValue(0);
       setShowSplash(true);
       Animated.sequence([
-        Animated.timing(splashOpacity, { toValue: 1, duration: 350, useNativeDriver: true }),
-        Animated.delay(700),
-        Animated.timing(splashOpacity, { toValue: 0, duration: 450, useNativeDriver: true }),
+        Animated.timing(splashIntro, { toValue: 1, duration: 750, easing: Easing.out(Easing.cubic), useNativeDriver: native }),
+        Animated.delay(350),
+        Animated.timing(splashOpacity, { toValue: 0, duration: 420, useNativeDriver: native }),
       ]).start(() => setShowSplash(false));
+      // Failsafe: never leave the splash up if animation frames are throttled
+      const failsafe = setTimeout(() => setShowSplash(false), 2200);
+      return () => clearTimeout(failsafe);
     }
   }, [loading]);
 
@@ -246,8 +235,12 @@ function AppContent() {
       <StatusBar style="light" />
       {showSplash && (
         <Animated.View style={[sp.overlay, { opacity: splashOpacity }]} pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-          <Text style={sp.wordmark}>MENTZER</Text>
-          <Text style={sp.sub}>HEAVY DUTY</Text>
+          <Animated.Text style={[sp.wordmark, {
+            opacity: splashIntro,
+            transform: [{ scale: splashIntro.interpolate({ inputRange: [0, 1], outputRange: [1.12, 1] }) }],
+          }]}>MENTZER</Animated.Text>
+          <Animated.View style={[sp.rule, { transform: [{ scaleX: splashIntro }] }]} />
+          <Animated.Text style={[sp.sub, { opacity: splashIntro }]}>HEAVY DUTY</Animated.Text>
         </Animated.View>
       )}
       <NavigationContainer>

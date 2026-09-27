@@ -114,6 +114,13 @@ All fetch functions are named `loadData()` across all screens.
 
 ---
 
+## Previews (ArbanDimak)
+When working inside ArbanDimak, show the app on ArbanDimak's Preview screen with its
+`hook.js show app` command. Don't open it in Chrome or run `expo start --web` (that flag
+opens a browser). A PreToolUse hook (`.claude/hooks/preview-guard.js`) redirects Chrome
+visits to localhost onto the Preview screen. `EXPO_PUBLIC_DEMO=1` runs the app on seeded
+demo data with no sign-in (web preview only).
+
 ## Features built
 - Auth (Supabase email/password)
 - 6-step onboarding with metric/imperial toggle

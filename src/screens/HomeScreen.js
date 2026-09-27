@@ -540,11 +540,12 @@ function monotoneCubicPath(pts) {
   return d;
 }
 // ── Recovery stage bar ─────────────────────────────────────────────────────────
+// Matches getRecoveryStatus: ready from Mentzer's day-4 minimum, overdue after day 7
 const STAGE_SEGS = [
-  { key: 'recover', label: 'RECOVERING', from: 0,   to: 2.5, color: PHASE_COLORS.recovering },
-  { key: 'repair',  label: 'REPAIRING',  from: 2.5, to: 5.0, color: PHASE_COLORS.repairing  },
-  { key: 'rebuild', label: 'REBUILDING', from: 5.0, to: 7.5, color: PHASE_COLORS.rebuilding },
-  { key: 'ready',   label: 'READY',      from: 7.5, to: 10,  color: PHASE_COLORS.ready      },
+  { key: 'recover', label: 'RECOVERING', from: 0, to: 2,  color: PHASE_COLORS.recovering },
+  { key: 'rebuild', label: 'REBUILDING', from: 2, to: 4,  color: PHASE_COLORS.rebuilding },
+  { key: 'ready',   label: 'READY',      from: 4, to: 7,  color: PHASE_COLORS.ready      },
+  { key: 'overdue', label: 'OVERDUE',    from: 7, to: 10, color: PHASE_COLORS.overdue    },
 ];
 
 function RecoveryStageBar({ hoursSince }) {

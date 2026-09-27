@@ -1,10 +1,23 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { COLORS, FONT, RADIUS } from '../theme';
 
-/** Round tinted icon badge.  <IconBadge icon="activity" /> */
-export function IconBadge({ icon, color = COLORS.gold, size = 40, filled = false, style }) {
+// Gym icon per muscle group (MaterialCommunityIcons)
+const MUSCLE_ICONS = {
+  legs: 'run', back: 'rowing', chest: 'weight-lifter', shoulders: 'human-handsup',
+  biceps: 'arm-flex', triceps: 'arm-flex-outline', arms: 'arm-flex', calves: 'shoe-sneaker',
+  traps: 'human', core: 'human',
+};
+export const muscleIcon = muscle => MUSCLE_ICONS[String(muscle || '').toLowerCase()] || 'dumbbell';
+
+/**
+ * Round tinted icon badge.
+ *   <IconBadge icon="activity" />                 Feather icon
+ *   <IconBadge gym="dumbbell" />                  MaterialCommunityIcons gym glyph
+ */
+export function IconBadge({ icon, gym, color = COLORS.gold, size = 40, filled = false, style }) {
+  const Glyph = gym ? MaterialCommunityIcons : Feather;
   return (
     <View
       style={[styles.badge, {
@@ -14,7 +27,7 @@ export function IconBadge({ icon, color = COLORS.gold, size = 40, filled = false
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
     >
-      <Feather name={icon} size={Math.round(size * 0.45)} color={filled ? COLORS.onGold : color} />
+      <Glyph name={gym || icon} size={Math.round(size * (gym ? 0.52 : 0.45))} color={filled ? COLORS.onGold : color} />
     </View>
   );
 }

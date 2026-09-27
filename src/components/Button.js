@@ -18,11 +18,12 @@ import { COLORS, GRADIENTS, FONT, RADIUS, HIT } from '../theme';
  *   disabled  — dims and blocks presses
  *   shimmer   — primary only: a slow light sweep to draw the eye
  *   hint      — accessibilityHint for screen readers
+ *   accessibilityLabel — overrides the spoken label (defaults to title)
  *   size      — 'lg' (default) | 'md'
  */
 export default function Button({
   title, onPress, variant = 'primary', icon, iconRight, loading = false,
-  disabled = false, shimmer = false, hint, size = 'lg', style, textStyle,
+  disabled = false, shimmer = false, hint, size = 'lg', style, textStyle, accessibilityLabel,
 }) {
   const v = VARIANTS[variant] || VARIANTS.primary;
   const blocked = disabled || loading;
@@ -47,7 +48,7 @@ export default function Button({
       disabled={blocked}
       hapticStyle={variant === 'primary' ? 'press' : 'tap'}
       accessibilityRole="button"
-      accessibilityLabel={title}
+      accessibilityLabel={accessibilityLabel || title}
       accessibilityHint={hint}
       accessibilityState={{ disabled: blocked, busy: loading }}
       style={({ pressed }) => [

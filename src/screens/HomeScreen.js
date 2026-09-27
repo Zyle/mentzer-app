@@ -138,7 +138,7 @@ const RANGE_OPTIONS = [
   { label: '6M',  days: 180 },
 ];
 
-const overallColor = s => s >= 80 ? COLORS.green : s >= 60 ? COLORS.goldBright : COLORS.red;
+const overallColor = s => s >= 80 ? COLORS.gold : s >= 60 ? COLORS.orange : COLORS.red;
 const getScoreLabel = s =>
   s >= 90 ? 'OPTIMAL' : s >= 75 ? 'DISCIPLINED' : s >= 60 ? 'ON TRACK' : s >= 40 ? 'NEEDS WORK' : 'OFF PROGRAM';
 

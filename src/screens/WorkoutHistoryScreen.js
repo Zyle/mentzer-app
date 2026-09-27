@@ -7,6 +7,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import Card from '../components/Card';
+import { IconBadge } from '../components/Badges';
 import { useUnits, kgToDisplay } from '../lib/units';
 import ScreenHeader from '../components/ScreenHeader';
 import { COLORS, FONT, TYPE, RADIUS, SPACING } from '../theme';
@@ -65,6 +66,7 @@ function WorkoutCard({ item, imperial, weightUnit }) {
         accessibilityLabel={`${formatDate(item.date)}, ${daysAgo(item.date)}. ${item.exercises.length} exercises.${item.gapDays !== null ? ` ${Math.round(item.gapDays)} days after the previous session.` : ''}`}
         accessibilityHint={expanded ? 'Hides the exercises' : 'Shows the exercises'}
       >
+        <IconBadge gym="dumbbell" size={40} />
         <View style={styles.dateBlock}>
           <Text style={styles.dateText}>{formatDate(item.date)}</Text>
           <Text style={styles.agoText}>{daysAgo(item.date)}</Text>
@@ -187,7 +189,7 @@ export default function WorkoutHistoryScreen() {
 
   return (
     <View style={styles.container}>
-      <ScreenHeader title="History" subtitle={totalSessions > 0 ? 'EVERY SESSION, EVERY SET' : null} />
+      <ScreenHeader title="History" subtitle={totalSessions > 0 ? 'Every session, every set' : null} />
 
       {history.length === 0 ? (
         <View style={styles.center}>

@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import Card from '../components/Card';
+import RingGauge from '../components/RingGauge';
 import Button from '../components/Button';
 import ScreenHeader from '../components/ScreenHeader';
 import { COLORS, FONT, TYPE, RADIUS, SPACING, HIT } from '../theme';
@@ -89,17 +90,34 @@ export default function CalorieTrackerScreen({ navigation }) {
           accessible
           accessibilityLabel={`${Math.abs(remaining)} calories ${over ? 'over target' : 'remaining today'}. ${consumed} of ${target} eaten.`}
         >
-          <Text style={s.remainLabel}>{over ? 'OVER TARGET BY' : 'REMAINING TODAY'}</Text>
-          <Text style={[s.remainNum, over && { color: COLORS.red }]}>
-            {Math.abs(remaining).toLocaleString()}
-            <Text style={s.kcalUnit}> kcal</Text>
-          </Text>
-          <View style={s.track}>
-            <View style={[s.fill, { width: `${pct * 100}%`, backgroundColor: over ? COLORS.red : COLORS.teal }]} />
-          </View>
-          <View style={s.statsRow}>
-            <Text style={s.stat}>{consumed.toLocaleString()} eaten</Text>
-            <Text style={s.stat}>{target.toLocaleString()} target</Text>
+          <View style={s.ringRow}>
+            <View style={{ width: 150 }}>
+              <RingGauge
+                progress={pct}
+                value={Math.abs(remaining)}
+                caption={over ? 'kcal over' : 'kcal left'}
+                color={over ? COLORS.red : COLORS.gold}
+                size={150}
+                stroke={14}
+                valueSize={32}
+              />
+            </View>
+            <View style={s.ringStats}>
+              <View style={s.ringStat}>
+                <View style={[s.ringDot, { backgroundColor: COLORS.gold }]} />
+                <View>
+                  <Text style={s.ringStatNum}>{consumed.toLocaleString()}</Text>
+                  <Text style={s.stat}>Eaten</Text>
+                </View>
+              </View>
+              <View style={s.ringStat}>
+                <View style={[s.ringDot, { backgroundColor: COLORS.surfaceRaised }]} />
+                <View>
+                  <Text style={s.ringStatNum}>{target.toLocaleString()}</Text>
+                  <Text style={s.stat}>Daily target</Text>
+                </View>
+              </View>
+            </View>
           </View>
         </View>
       </Card>
@@ -134,7 +152,7 @@ export default function CalorieTrackerScreen({ navigation }) {
         {error ? (
           <Text style={s.error} accessibilityLiveRegion="polite" accessibilityRole="alert">{error}</Text>
         ) : null}
-        <Button title="ADD" icon="plus" size="md" onPress={addEntry} loading={adding} style={{ marginTop: SPACING.md }} />
+        <Button title="Add" icon="plus" size="md" onPress={addEntry} loading={adding} style={{ marginTop: SPACING.md }} />
       </Card>
 
       {entries.length > 0 && <Text style={s.listTitle} accessibilityRole="header">TODAY</Text>}
@@ -146,7 +164,7 @@ export default function CalorieTrackerScreen({ navigation }) {
       style={s.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScreenHeader title="Calories" subtitle="TODAY'S LOG" onBack={() => navigation.goBack()} />
+      <ScreenHeader title="Calories" subtitle="Today's log" onBack={() => navigation.goBack()} />
 
       <FlatList
         data={entries}
@@ -185,6 +203,11 @@ const s = StyleSheet.create({
   list:         { paddingHorizontal: SPACING.screen },
 
   summaryCard:  { marginBottom: 12 },
+  ringRow:      { flexDirection: 'row', alignItems: 'center', gap: SPACING.lg },
+  ringStats:    { flex: 1, gap: 18 },
+  ringStat:     { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  ringDot:      { width: 10, height: 10, borderRadius: 5 },
+  ringStatNum:  { color: COLORS.white, fontSize: 22, fontWeight: FONT.black, fontVariant: ['tabular-nums'] },
   remainLabel:  { ...TYPE.overline, color: COLORS.textDim, marginBottom: 6 },
   remainNum:    { color: COLORS.white, fontSize: 44, fontWeight: FONT.black, letterSpacing: -1, marginBottom: 12, fontVariant: ['tabular-nums'] },
   kcalUnit:     { fontSize: 16, fontWeight: FONT.medium, letterSpacing: 0, color: COLORS.textMuted },

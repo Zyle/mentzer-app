@@ -19,10 +19,13 @@ export default function TabBar({ state, descriptors, navigation }) {
   const x = useRef(new Animated.Value(0)).current;
   const tabW = width / state.routes.length;
 
+  const placed = useRef(false);
+
   useEffect(() => {
     if (!tabW) return;
     const to = state.index * tabW + (tabW - PILL_W) / 2;
-    if (reduced) { x.setValue(to); return; }
+    // First layout: snap into place; afterwards spring between tabs
+    if (reduced || !placed.current) { x.setValue(to); placed.current = true; return; }
     Animated.spring(x, { toValue: to, useNativeDriver: Platform.OS !== 'web', ...MOTION.spring }).start();
   }, [state.index, tabW, reduced]);
 

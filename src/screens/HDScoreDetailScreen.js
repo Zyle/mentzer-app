@@ -9,6 +9,7 @@ import { Feather } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { getSessions, workoutAdherence, calcRoutineScore } from '../lib/routineScore';
 import ScreenHeader from '../components/ScreenHeader';
+import RingGauge from '../components/RingGauge';
 import { COLORS, FONT, TYPE, RADIUS, SPACING } from '../theme';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -293,7 +294,7 @@ function RestContent({ rangeWkts }) {
         <StatBox label="OPTIMAL"  value={`${optimalCount}/${gaps.length}`} sub="sessions" />
       </View>
 
-      <Text style={ct.sectionLabel}>SESSION GAPS</Text>
+      <Text style={ct.sectionLabel}>Session gaps</Text>
       <View style={ct.gapRow}>
         {gaps.map((g, i) => (
           <View key={i} style={[ct.gapPill, { backgroundColor: gapColor(g) + '22', borderColor: gapColor(g) + '66' }]}>
@@ -358,7 +359,7 @@ function RoutineContent({ rangeWkts, allSets, sessions }) {
         <StatBox label="EXERCISES" value={`${programmed.length}`} sub={sessions.length > 1 ? `across ${sessions.length} workouts` : 'in routine'} />
       </View>
 
-      <Text style={ct.sectionLabel}>EXERCISE BREAKDOWN</Text>
+      <Text style={ct.sectionLabel}>Exercise breakdown</Text>
       {exerciseStats.map(ex => {
         const barColor = ex.pct >= 0.8 ? COLORS.green : ex.pct >= 0.5 ? COLORS.gold : COLORS.red;
         return (
@@ -417,7 +418,7 @@ function NutritionContent({ rangeLogs, calTarget, rangeDays, goal }) {
       </View>
 
       <Text style={ct.sectionLabel}>
-        LAST {displayDays} DAYS{rangeDays > 30 ? ' (most recent 30)' : ''}
+        Last {displayDays} days{rangeDays > 30 ? ' (most recent 30)' : ''}
       </Text>
       <View style={ct.dayGrid}>
         {dayDots.map(({ key, consumed }) => (
@@ -501,7 +502,7 @@ export default function HDScoreDetailScreen({ navigation }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.background }}>
-      <ScreenHeader title="Heavy Duty Score" subtitle="ROUTINE · REST · NUTRITION" onBack={() => navigation.goBack()} />
+      <ScreenHeader title="Heavy Duty Score" subtitle="Routine · Rest · Nutrition" onBack={() => navigation.goBack()} />
 
       {loading ? (
         <View style={s.loader}>
@@ -534,28 +535,31 @@ export default function HDScoreDetailScreen({ navigation }) {
 
           {/* Overall score */}
           <View style={s.overallRow} accessible accessibilityLabel={overall !== null ? `Overall score ${overall} out of 100, ${label}` : 'No score yet'}>
-            <Text style={[s.overallNum, { color: numColor }]}>
-              {overall ?? '—'}<Text style={s.overallSub}>/100</Text>
-            </Text>
-            {label && (
-              <View style={[s.labelBadge, { borderColor: numColor + '55', backgroundColor: numColor + '18' }]}>
-                <Text style={[s.labelText, { color: numColor }]}>{label}</Text>
-              </View>
-            )}
+            <View style={{ width: 140 }}>
+              <RingGauge progress={(overall ?? 0) / 100} value={overall} caption="/100" color={numColor} size={140} stroke={13} valueSize={38} />
+            </View>
+            <View style={{ flex: 1, gap: 8 }}>
+              {label && (
+                <View style={[s.labelBadge, { borderColor: numColor + '55', backgroundColor: numColor + '18', alignSelf: 'flex-start' }]}>
+                  <Text style={[s.labelText, { color: numColor }]}>{label}</Text>
+                </View>
+              )}
+              <Text style={s.overallBlurb}>How closely you're following Heavy Duty: routine, rest and nutrition.</Text>
+            </View>
           </View>
 
           <Text style={s.tapHint}>Tap a pillar to see the breakdown.</Text>
 
           {/* Accordion pillars */}
-          <PillarAccordion icon="clock" label="REST" color={COLORS.blue} score={scores.rest}>
+          <PillarAccordion icon="clock" label="REST" color={COLORS.orange} score={scores.rest}>
             <RestContent rangeWkts={rangeWkts} />
           </PillarAccordion>
 
-          <PillarAccordion icon="check-circle" label="ROUTINE" color={COLORS.violet} score={scores.routine}>
+          <PillarAccordion icon="check-circle" label="ROUTINE" color={COLORS.gold} score={scores.routine}>
             <RoutineContent rangeWkts={rangeWkts} allSets={allSets} sessions={sessions} />
           </PillarAccordion>
 
-          <PillarAccordion icon="target" label="NUTRITION" color={COLORS.teal} score={scores.nutrition}>
+          <PillarAccordion icon="target" label="NUTRITION" color={COLORS.cream} score={scores.nutrition}>
             <NutritionContent
               rangeLogs={rangeLogs}
               calTarget={calTarget}
@@ -574,7 +578,7 @@ const ct = StyleSheet.create({
   emptyNote:    { ...TYPE.callout, color: COLORS.textMuted },
   statsRow:     { flexDirection: 'row', marginBottom: 20 },
   statDiv:      { width: 1, backgroundColor: COLORS.border, marginHorizontal: 4 },
-  sectionLabel: { ...TYPE.overline, color: COLORS.textDim, marginBottom: 10 },
+  sectionLabel: { color: COLORS.textMuted, fontSize: 13, fontWeight: FONT.semibold, marginBottom: 10 },
 
   gapRow:  { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 },
   gapPill: { borderRadius: RADIUS.sm, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 5 },
@@ -607,7 +611,9 @@ const s = StyleSheet.create({
   chipText:     { color: COLORS.textDim, fontSize: 12, fontWeight: FONT.bold },
   chipTextActive: { color: COLORS.gold },
 
-  overallRow:   { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 6 },
+  overallRow:   { flexDirection: 'row', alignItems: 'center', gap: 18, marginBottom: 14,
+                  backgroundColor: COLORS.surface, borderRadius: RADIUS.xl, padding: SPACING.lg },
+  overallBlurb: { color: COLORS.textMuted, fontSize: 13, lineHeight: 19 },
   overallNum:   { fontSize: 56, fontWeight: FONT.black, letterSpacing: -2, fontVariant: ['tabular-nums'] },
   overallSub:   { fontSize: 20, fontWeight: FONT.semibold, letterSpacing: 0, color: COLORS.textDim },
   labelBadge:   { borderRadius: RADIUS.pill, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 4 },

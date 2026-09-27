@@ -14,7 +14,7 @@ import { COLORS, FONT } from '../theme';
  */
 export default function RingGauge({
   progress = 0, value, suffix = '', caption, label, sublabel,
-  color = COLORS.gold, size = 92, stroke = 9, delay = 0,
+  color = COLORS.gold, size = 92, stroke = 9, delay = 0, valueSize = 22,
 }) {
   const reduced = useReduceMotion();
   const p = Math.max(0, Math.min(1, progress || 0));
@@ -57,7 +57,7 @@ export default function RingGauge({
           />
         </Svg>
         <View style={styles.center} pointerEvents="none">
-          <Text style={styles.value}>
+          <Text style={[styles.value, { fontSize: valueSize }]}>
             {shown}<Text style={styles.suffix}>{value == null ? '' : suffix}</Text>
           </Text>
           {caption ? <Text style={styles.caption}>{caption}</Text> : null}

@@ -1,15 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
-  TouchableOpacity, TextInput, Alert, Modal,
+  Pressable, TextInput, Alert, Modal, Animated, Easing, Platform,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import ScreenHeader from '../components/ScreenHeader';
+import Button from '../components/Button';
+import { IconBadge, Tag, muscleIcon } from '../components/Badges';
+import { FadeInUp, PressableScale, useLoop, useReduceMotion, haptic } from '../lib/motion';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import { scheduleRecoveryNotificationsIfEnabled } from '../lib/notifications';
 import { EXERCISES, MUSCLES, findExercise, canonicalName } from '../data/exercises';
 import { analyzeSet, getNextTarget, isPersonalBest, setsByExercise, bestOf } from '../lib/progression';
 import { loadProgramme, pickNextSession, PROGRAMME_LABELS } from '../lib/programme';
-import { COLORS, FONT, RADIUS, SPACING } from '../theme';
+import { COLORS, GRADIENTS, FONT, TYPE, RADIUS, SPACING, HIT } from '../theme';
 
 // Accept "82,5" as well as "82.5" (European keyboards)
 const parseWeight = (v) => parseFloat(String(v ?? '').replace(',', '.'));
@@ -47,6 +53,7 @@ export default function WorkoutScreen({ navigation }) {
   const [selectedMuscle, setSelectedMuscle]         = useState('Chest');
   const [saveModal, setSaveModal]   = useState(false);
   const [templateName, setTemplateName] = useState('');
+  const [pickerQuery, setPickerQuery]   = useState('');
 
   const workoutTimerRef = useRef(null);
   const restTimerRef    = useRef(null);
@@ -468,90 +475,100 @@ export default function WorkoutScreen({ navigation }) {
 
   // ── PICKING PHASE ─────────────────────────────────────────────────────────────
   if (phase === 'picking') {
+    const nextSession = programme.sessions.find(ss => ss.key === nextSessionKey) || programme.sessions[0];
+    const otherSessions = programme.sessions.filter(ss => ss !== nextSession);
     return (
       <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <Text style={styles.backButton}>← BACK</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>START WORKOUT</Text>
-          <View style={{ width: 60 }} />
-        </View>
+        <ScreenHeader
+          title="Start workout"
+          subtitle={programme.routineType ? PROGRAMME_LABELS[programme.routineType] : 'One set per exercise, to failure'}
+          onBack={() => navigation.goBack()}
+        />
 
-        <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 60 }}>
+        <ScrollView contentContainerStyle={styles.pickContent} showsVerticalScrollIndicator={false}>
 
-          {programme.sessions.length > 0 && (
-            <>
-              <Text style={styles.sectionLabel}>
-                YOUR PROGRAMME{programme.routineType ? ` · ${(PROGRAMME_LABELS[programme.routineType] || '').toUpperCase()}` : ''}
-              </Text>
-              {programme.sessions.map(session => {
-                const isNext = session.key === nextSessionKey;
-                return (
-                  <TouchableOpacity
-                    key={session.key}
-                    style={[styles.templateCard, isNext && styles.programmeCardNext]}
-                    onPress={() => startSession(session)}
-                    activeOpacity={0.8}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Start ${session.label}${isNext ? ', next up' : ''}`}
-                  >
-                    <View style={styles.templateCardMain}>
-                      {isNext && programme.sessions.length > 1 && (
-                        <Text style={styles.nextUpTag}>NEXT UP</Text>
-                      )}
-                      <Text style={styles.templateName}>{session.label}</Text>
-                      <Text style={styles.templateExercises} numberOfLines={2}>
-                        {session.exercises.map(e => e.name).join(' · ')}
-                      </Text>
-                      <Text style={styles.templateCount}>
-                        {session.exercises.length} exercise{session.exercises.length !== 1 ? 's' : ''} · 1 set each to failure
-                      </Text>
+          {nextSession && (
+            <FadeInUp index={0}>
+              <PressableScale
+                onPress={() => startSession(nextSession)}
+                scaleTo={0.985}
+                style={styles.nextCard}
+                accessibilityRole="button"
+                accessibilityLabel={`Start ${nextSession.label}${programme.sessions.length > 1 ? ', next up' : ''}`}
+              >
+                <LinearGradient colors={GRADIENTS.heroGlow} start={{ x: 1, y: 0 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFill} />
+                <View style={styles.nextChip}>
+                  <MaterialCommunityIcons name="lightning-bolt" size={13} color={COLORS.gold} />
+                  <Text style={styles.nextChipText}>{programme.sessions.length > 1 ? 'NEXT UP' : 'YOUR SESSION'}</Text>
+                </View>
+                <Text style={styles.nextTitle}>{nextSession.label}</Text>
+                <Text style={styles.nextMeta}>
+                  {nextSession.exercises.length} exercise{nextSession.exercises.length !== 1 ? 's' : ''} · 1 set each to failure
+                </Text>
+                <View style={styles.nextList}>
+                  {nextSession.exercises.map((ex, i) => (
+                    <View key={ex.name} style={styles.nextRow}>
+                      <IconBadge gym={muscleIcon(ex.muscle)} size={34} />
+                      <Text style={styles.nextRowName} numberOfLines={1}>{ex.name}</Text>
+                      {ex.supersetWith ? <Tag label="Superset" color={COLORS.gold} /> : <Tag label={ex.muscle} />}
                     </View>
-                    <Text style={styles.chevron}>›</Text>
-                  </TouchableOpacity>
-                );
-              })}
-              <View style={styles.sectionDivider} />
-            </>
+                  ))}
+                </View>
+                <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+                  <Button title="Start session" icon="zap" shimmer onPress={() => {}} style={{ marginTop: SPACING.lg }} />
+                </View>
+              </PressableScale>
+            </FadeInUp>
           )}
 
-          {templates.length > 0 ? (
-            <>
-              <Text style={styles.sectionLabel}>SAVED WORKOUTS</Text>
-              {templates.map(template => (
-                <TouchableOpacity
-                  key={template.id}
-                  style={styles.templateCard}
-                  onPress={() => startFromTemplate(template)}
-                  activeOpacity={0.8}
+          {otherSessions.length > 0 && <Text style={styles.sectionLabel}>Other sessions</Text>}
+          {otherSessions.map((session, i) => (
+            <FadeInUp key={session.key} index={i + 1}>
+              <PressableScale
+                style={styles.listCard}
+                onPress={() => startSession(session)}
+                accessibilityRole="button"
+                accessibilityLabel={`Start ${session.label}`}
+              >
+                <IconBadge gym="dumbbell" size={44} />
+                <View style={styles.listCardMain}>
+                  <Text style={styles.listCardTitle}>{session.label}</Text>
+                  <Text style={styles.listCardSub} numberOfLines={1}>{session.exercises.map(e => e.name).join(' · ')}</Text>
+                </View>
+                <Feather name="chevron-right" size={20} color={COLORS.textDim} />
+              </PressableScale>
+            </FadeInUp>
+          ))}
+
+          {templates.length > 0 && <Text style={styles.sectionLabel}>Saved workouts</Text>}
+          {templates.map((template, i) => (
+            <FadeInUp key={template.id} index={i + 2}>
+              <PressableScale
+                style={styles.listCard}
+                onPress={() => startFromTemplate(template)}
+                accessibilityRole="button"
+                accessibilityLabel={`Start saved workout ${template.name}`}
+              >
+                <IconBadge icon="bookmark" size={44} />
+                <View style={styles.listCardMain}>
+                  <Text style={styles.listCardTitle}>{template.name}</Text>
+                  <Text style={styles.listCardSub} numberOfLines={1}>
+                    {(template.exercises || []).map(canonicalName).join(' · ')}
+                  </Text>
+                </View>
+                <Pressable
+                  style={styles.iconBtn}
+                  onPress={() => deleteTemplate(template)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Delete saved workout ${template.name}`}
                 >
-                  <View style={styles.templateCardMain}>
-                    <Text style={styles.templateName}>{template.name}</Text>
-                    <Text style={styles.templateExercises} numberOfLines={1}>
-                      {(template.exercises || []).map(canonicalName).join(' · ')}
-                    </Text>
-                    <Text style={styles.templateCount}>
-                      {template.exercises.length} exercise{template.exercises.length !== 1 ? 's' : ''}
-                    </Text>
-                  </View>
-                  <View style={styles.templateCardRight}>
-                    <TouchableOpacity
-                      style={styles.deleteBtn}
-                      onPress={() => deleteTemplate(template)}
-                      hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Delete saved workout ${template.name}`}
-                    >
-                      <Text style={styles.deleteBtnText}>✕</Text>
-                    </TouchableOpacity>
-                    <Text style={styles.chevron}>›</Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
-              <View style={styles.sectionDivider} />
-            </>
-          ) : programme.sessions.length === 0 && (
+                  <Feather name="trash-2" size={16} color={COLORS.textMuted} />
+                </Pressable>
+              </PressableScale>
+            </FadeInUp>
+          ))}
+
+          {templates.length === 0 && programme.sessions.length === 0 && (
             <View style={styles.noTemplatesHint}>
               <Text style={styles.noTemplatesText}>
                 No saved workouts yet.{'\n'}Finish a workout and save it to reuse it here.
@@ -559,52 +576,84 @@ export default function WorkoutScreen({ navigation }) {
             </View>
           )}
 
-          <TouchableOpacity style={styles.freshCard} onPress={startFresh} activeOpacity={0.8}>
-            <Text style={styles.freshIcon}>＋</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.freshTitle}>Start Fresh</Text>
-              <Text style={styles.freshSubtitle}>Build your workout as you go</Text>
-            </View>
-            <Text style={styles.chevron}>›</Text>
-          </TouchableOpacity>
-
+          <FadeInUp index={4}>
+            <PressableScale
+              style={styles.freshCard}
+              onPress={startFresh}
+              accessibilityRole="button"
+              accessibilityLabel="Start fresh. Build your workout as you go"
+            >
+              <IconBadge icon="plus" size={44} filled />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.listCardTitle}>Start fresh</Text>
+                <Text style={styles.listCardSub}>Build your workout as you go</Text>
+              </View>
+              <Feather name="chevron-right" size={20} color={COLORS.textDim} />
+            </PressableScale>
+          </FadeInUp>
         </ScrollView>
       </View>
     );
   }
 
   // ── ACTIVE PHASE ──────────────────────────────────────────────────────────────
+  const doneCount = routine.filter(e => setData[e.name]?.logged).length;
+  const allDone   = routine.length > 0 && doneCount === routine.length;
+  const pickerList = pickerQuery.trim()
+    ? EXERCISES.filter(e => e.name.toLowerCase().includes(pickerQuery.trim().toLowerCase()))
+    : filteredExercises;
+
   return (
     <View style={styles.container}>
 
-      <View style={styles.header}>
-        <TouchableOpacity onPress={cancelWorkout}>
-          <Text style={styles.backButton}>← BACK</Text>
-        </TouchableOpacity>
-        <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle} numberOfLines={1}>
-            {sessionLabel ? sessionLabel.toUpperCase() : 'WORKOUT'}
-          </Text>
-          <View style={styles.timerBadge}>
-            <Text style={styles.timerText}>{formatTime(elapsedSeconds)}</Text>
+      <ScreenHeader
+        title={sessionLabel || 'Workout'}
+        onBack={cancelWorkout}
+        right={
+          <View style={styles.headerRight}>
+            <View style={styles.timerPill} accessible accessibilityLabel={`Elapsed ${formatTime(elapsedSeconds)}`}>
+              <LiveDot />
+              <Text style={styles.timerText}>{formatTime(elapsedSeconds)}</Text>
+            </View>
+            <PressableScale
+              onPress={finishWorkout}
+              style={[styles.finishBtn, allDone && styles.finishBtnReady]}
+              accessibilityRole="button"
+              accessibilityLabel="Finish workout"
+            >
+              <Text style={[styles.finishText, allDone && { color: COLORS.onGold }]}>Finish</Text>
+            </PressableScale>
           </View>
-        </View>
-        <TouchableOpacity onPress={finishWorkout}>
-          <Text style={styles.finishButton}>FINISH</Text>
-        </TouchableOpacity>
-      </View>
+        }
+      />
 
-      <ScrollView style={styles.content} keyboardShouldPersistTaps="handled">
+      {routine.length > 0 && (
+        <View style={styles.progressWrap} accessible accessibilityLabel={`${doneCount} of ${routine.length} exercises done`}>
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: `${(doneCount / routine.length) * 100}%` }]}>
+              <LinearGradient colors={GRADIENTS.gold} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={StyleSheet.absoluteFill} />
+            </View>
+          </View>
+          <Text style={styles.progressText}>{doneCount}/{routine.length}</Text>
+        </View>
+      )}
+
+      <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 140 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
 
         {routine.length === 0 ? (
-          <TouchableOpacity style={styles.emptyCard} onPress={() => setShowExercisePicker(true)} activeOpacity={0.8}>
-            <Text style={styles.emptyIcon}>＋</Text>
-            <Text style={styles.emptyTitle}>ADD EXERCISE</Text>
-            <Text style={styles.emptySubtitle}>Tap to select from your exercise library</Text>
-          </TouchableOpacity>
+          <PressableScale
+            style={styles.emptyCard}
+            onPress={() => setShowExercisePicker(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Add exercise"
+          >
+            <IconBadge icon="plus" size={56} filled />
+            <Text style={styles.emptyTitle}>Add your first exercise</Text>
+            <Text style={styles.emptySubtitle}>Pick from the Heavy Duty exercise library</Text>
+          </PressableScale>
         ) : (
           <>
-            {routine.map((exercise) => {
+            {routine.map((exercise, idx) => {
               const data  = setData[exercise.name] || {};
               const pb    = prevBests[exercise.name];
               const ready = !!(data.weight && data.reps);
@@ -612,268 +661,222 @@ export default function WorkoutScreen({ navigation }) {
 
               if (data.logged) {
                 return (
-                  <View key={exercise.name} style={styles.cardDone}>
-                    <View style={styles.doneHeader}>
-                      <View style={styles.doneLeft}>
-                        <View style={styles.doneCheck}>
-                          <Text style={styles.doneCheckText}>✓</Text>
-                        </View>
-                        <Text style={styles.doneName}>{exercise.name}</Text>
-                      </View>
-                      {data.isPR && (
-                        <View style={styles.prBadge}>
-                          <Text style={styles.prBadgeText}>🏆 PR</Text>
-                        </View>
-                      )}
-                    </View>
-                    <Text style={styles.doneStats}>{data.weight}kg × {data.reps} reps</Text>
-                    {data.result && (
-                      <View style={styles.doneResult}>
-                        {data.result.progressNote && (
-                          <Text style={styles.doneResultNote}>{data.result.progressNote}</Text>
-                        )}
-                        <Text style={styles.doneResultNext}>
-                          Next session: {data.result.nextWeight}kg · {data.result.restDays}+ days rest
-                        </Text>
-                      </View>
-                    )}
-                    <TouchableOpacity
-                      style={styles.editSetBtn}
-                      onPress={() => undoSet(exercise)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Edit logged ${exercise.name} set`}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    >
-                      <Text style={styles.editSetBtnText}>EDIT</Text>
-                    </TouchableOpacity>
-                  </View>
+                  <DoneCard key={exercise.name} exercise={exercise} data={data} onEdit={() => undoSet(exercise)} />
                 );
               }
 
+              const cued = supersetCue === exercise.name;
               return (
-                <View key={exercise.name} style={styles.card}>
-                  <View style={styles.cardHeader}>
-                    <View style={styles.cardHeaderLeft}>
-                      <Text style={styles.exerciseName}>{exercise.name}</Text>
-                      <Text style={styles.exerciseMeta}>
-                        {exercise.muscle}  ·  {exercise.repRange[0]}–{exercise.repRange[1]} reps
-                      </Text>
+                <FadeInUp key={exercise.name} index={idx}>
+                  <View style={[styles.card, cued && styles.cardCued]}>
+                    <View style={styles.cardHeader}>
+                      <IconBadge gym={muscleIcon(exercise.muscle)} size={44} />
+                      <View style={styles.cardHeaderMain}>
+                        <Text style={styles.exerciseName}>{exercise.name}</Text>
+                        <View style={styles.tagRow}>
+                          <Tag label={exercise.muscle} />
+                          <Tag label={`${exercise.repRange[0]}–${exercise.repRange[1]} reps`} color={COLORS.textSecondary} />
+                          {exercise.hd2Core && <Tag label="HD2" color={COLORS.gold} />}
+                        </View>
+                      </View>
                     </View>
-                    {exercise.hd2Core && (
-                      <View style={styles.hd2Badge}>
-                        <Text style={styles.hd2BadgeText}>HD2</Text>
+
+                    {exercise.supersetWith && (
+                      <View style={styles.supersetBanner}>
+                        <MaterialCommunityIcons name="lightning-bolt" size={15} color={COLORS.gold} />
+                        <Text style={styles.supersetNote}>Superset: straight into {exercise.supersetWith}, no rest</Text>
+                      </View>
+                    )}
+                    {cued && (
+                      <View style={[styles.supersetBanner, styles.supersetBannerGo]} accessibilityLiveRegion="polite">
+                        <MaterialCommunityIcons name="fire" size={16} color={COLORS.onGold} />
+                        <Text style={styles.supersetCue}>Go now: no rest after the pre-exhaust</Text>
+                      </View>
+                    )}
+
+                    <View style={styles.statRow}>
+                      <StatPill
+                        label="Last time"
+                        value={target ? `${target.lastWeight}kg × ${target.lastReps}` : 'First time'}
+                        sub={target ? formatShortDate(target.lastDate) : `Aim ${exercise.repRange[0]}–${exercise.repRange[1]} reps`}
+                      />
+                      <StatPill
+                        label="Target"
+                        value={target ? `${target.weight}kg × ${target.repGoal}+` : '—'}
+                        highlight={!!target}
+                      />
+                      <StatPill label="Best" value={pb ? `${pb.weight_kg}kg × ${pb.reps}` : '—'} />
+                    </View>
+
+                    <View style={styles.setRow}>
+                      <Stepper
+                        label="Weight"
+                        unit="kg"
+                        value={data.weight}
+                        onChange={v => updateField(exercise.name, 'weight', v)}
+                        onMinus={() => adjustWeight(exercise.name, -weightIncrement)}
+                        onPlus={() => adjustWeight(exercise.name, weightIncrement)}
+                        keyboardType="decimal-pad"
+                        inputLabel={`${exercise.name} weight in kilograms`}
+                        minusLabel={`Decrease weight by ${weightIncrement} kilograms`}
+                        plusLabel={`Increase weight by ${weightIncrement} kilograms`}
+                      />
+                      <Stepper
+                        label="Reps"
+                        unit="reps"
+                        value={data.reps}
+                        onChange={v => updateField(exercise.name, 'reps', v)}
+                        onMinus={() => adjustReps(exercise.name, -1)}
+                        onPlus={() => adjustReps(exercise.name, 1)}
+                        keyboardType="number-pad"
+                        inputLabel={`${exercise.name} reps`}
+                        minusLabel="Decrease reps by one"
+                        plusLabel="Increase reps by one"
+                      />
+                    </View>
+
+                    <Button
+                      title="Log set to failure"
+                      icon="check"
+                      variant={ready ? 'primary' : 'secondary'}
+                      onPress={() => logSet(exercise)}
+                      accessibilityLabel={`Log ${exercise.name} set`}
+                      style={{ marginTop: SPACING.md }}
+                    />
+
+                    {exercise.mentzerNote && (
+                      <View style={styles.noteRow}>
+                        <Feather name="info" size={13} color={COLORS.textDim} style={{ marginTop: 2 }} />
+                        <Text style={styles.mentzerNote}>{exercise.mentzerNote}</Text>
                       </View>
                     )}
                   </View>
-
-                  {exercise.supersetWith && (
-                    <Text style={styles.supersetNote}>
-                      SUPERSET → straight into {exercise.supersetWith}, no rest
-                    </Text>
-                  )}
-                  {supersetCue === exercise.name && (
-                    <Text style={styles.supersetCue}>GO NOW — no rest after the pre-exhaust</Text>
-                  )}
-
-                  <View style={styles.prevRow}>
-                    <Text style={styles.prevLabel}>LAST TIME</Text>
-                    <Text style={styles.prevValue}>
-                      {target
-                        ? `${target.lastWeight}kg × ${target.lastReps} · ${formatShortDate(target.lastDate)}`
-                        : `First time — pick a weight for ${exercise.repRange[0]}-${exercise.repRange[1]} reps`}
-                    </Text>
-                  </View>
-                  {target && (
-                    <View style={styles.prevRow}>
-                      <Text style={styles.prevLabel}>TARGET</Text>
-                      <Text style={[styles.prevValue, styles.targetValue]}>
-                        {target.weight}kg × {target.repGoal}+ reps
-                      </Text>
-                    </View>
-                  )}
-                  <View style={styles.prevRow}>
-                    <Text style={styles.prevLabel}>BEST</Text>
-                    <Text style={styles.prevValue}>
-                      {pb ? `${pb.weight_kg}kg × ${pb.reps} reps` : '—'}
-                    </Text>
-                  </View>
-
-                  <View style={styles.divider} />
-
-                  <View style={styles.setRow}>
-                    <View style={[styles.inputGroup, { flex: 3 }]}>
-                      <Text style={styles.inputGroupLabel}>WEIGHT</Text>
-                      <View style={styles.inputControls}>
-                        <TouchableOpacity style={styles.adjBtn} onPress={() => adjustWeight(exercise.name, -weightIncrement)} accessibilityRole="button" accessibilityLabel={`Decrease weight by ${weightIncrement} kilograms`}>
-                          <Text style={styles.adjBtnText}>−</Text>
-                        </TouchableOpacity>
-                        <TextInput
-                          style={styles.numberInput}
-                          value={data.weight}
-                          onChangeText={v => updateField(exercise.name, 'weight', v)}
-                          keyboardType="decimal-pad"
-                          accessibilityLabel={`${exercise.name} weight in kilograms`}
-                          selectTextOnFocus
-                          placeholder="0"
-                          placeholderTextColor={COLORS.textFaint}
-                        />
-                        <TouchableOpacity style={styles.adjBtn} onPress={() => adjustWeight(exercise.name, weightIncrement)} accessibilityRole="button" accessibilityLabel={`Increase weight by ${weightIncrement} kilograms`}>
-                          <Text style={styles.adjBtnText}>+</Text>
-                        </TouchableOpacity>
-                      </View>
-                      <Text style={styles.inputUnit}>kg</Text>
-                    </View>
-
-                    <View style={[styles.inputGroup, { flex: 2 }]}>
-                      <Text style={styles.inputGroupLabel}>REPS</Text>
-                      <View style={styles.inputControls}>
-                        <TouchableOpacity style={styles.adjBtn} onPress={() => adjustReps(exercise.name, -1)} accessibilityRole="button" accessibilityLabel="Decrease reps by one">
-                          <Text style={styles.adjBtnText}>−</Text>
-                        </TouchableOpacity>
-                        <TextInput
-                          style={styles.numberInput}
-                          value={data.reps}
-                          onChangeText={v => updateField(exercise.name, 'reps', v)}
-                          keyboardType="number-pad"
-                          accessibilityLabel={`${exercise.name} reps`}
-                          selectTextOnFocus
-                          placeholder="0"
-                          placeholderTextColor={COLORS.textFaint}
-                        />
-                        <TouchableOpacity style={styles.adjBtn} onPress={() => adjustReps(exercise.name, 1)} accessibilityRole="button" accessibilityLabel="Increase reps by one">
-                          <Text style={styles.adjBtnText}>+</Text>
-                        </TouchableOpacity>
-                      </View>
-                      <Text style={styles.inputUnit}>reps</Text>
-                    </View>
-
-                    <TouchableOpacity
-                      style={[styles.completeBtn, ready && styles.completeBtnReady]}
-                      onPress={() => logSet(exercise)}
-                      activeOpacity={0.8}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Log ${exercise.name} set`}
-                    >
-                      <Text style={[styles.completeBtnText, ready && styles.completeBtnTextReady]}>✓</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  {exercise.mentzerNote && (
-                    <Text style={styles.mentzerNote}>"{exercise.mentzerNote}"</Text>
-                  )}
-                </View>
+                </FadeInUp>
               );
             })}
 
-            <TouchableOpacity style={styles.addBtn} onPress={() => setShowExercisePicker(true)} activeOpacity={0.7}>
-              <Text style={styles.addBtnText}>+ ADD EXERCISE</Text>
-            </TouchableOpacity>
+            <PressableScale
+              style={styles.addBtn}
+              onPress={() => setShowExercisePicker(true)}
+              hapticStyle="tap"
+              accessibilityRole="button"
+              accessibilityLabel="Add exercise"
+            >
+              <Feather name="plus" size={16} color={COLORS.gold} />
+              <Text style={styles.addBtnText}>Add exercise</Text>
+            </PressableScale>
           </>
         )}
-
-        <View style={{ height: 120 }} />
       </ScrollView>
 
       {/* Rest Timer */}
       {restTimer.active && (
-        <View style={styles.restBar}>
+        <FadeInUp style={styles.restBar} distance={30}>
           <View style={styles.restBarLeft}>
-            <View style={styles.restDot} />
+            <IconBadge gym="timer-outline" size={44} />
             <View>
-              <Text style={styles.restBarLabel}>RESTING</Text>
-              <Text style={styles.restBarTime}>{formatTime(restTimer.elapsed)}</Text>
+              <Text style={styles.restBarLabel}>Resting · keep it short</Text>
+              <Text style={styles.restBarTime} accessibilityLiveRegion="none">{formatTime(restTimer.elapsed)}</Text>
             </View>
           </View>
-          <TouchableOpacity style={styles.restBarBtn} onPress={dismissRestTimer} activeOpacity={0.8}>
-            <Text style={styles.restBarBtnText}>DONE RESTING</Text>
-          </TouchableOpacity>
-        </View>
+          <Button title="I'm ready" size="md" onPress={dismissRestTimer} style={{ paddingHorizontal: 20 }} />
+        </FadeInUp>
       )}
 
       {/* Save Template Modal */}
-      <Modal visible={saveModal} transparent animationType="fade">
+      <Modal visible={saveModal} transparent animationType="fade" onRequestClose={() => setSaveModal(false)}>
         <View style={styles.saveOverlay}>
-          <View style={styles.saveCard}>
-            <Text style={styles.saveTitle}>SAVE WORKOUT</Text>
-            <Text style={styles.saveSubtitle}>Name it to reuse next time</Text>
+          <View style={styles.saveCard} accessibilityViewIsModal>
+            <IconBadge icon="bookmark" size={52} style={{ marginBottom: 14 }} />
+            <Text style={styles.saveTitle} accessibilityRole="header">Save this workout</Text>
+            <Text style={styles.saveSubtitle}>Name it to reuse it next time</Text>
             <TextInput
               style={styles.saveInput}
               value={templateName}
               onChangeText={setTemplateName}
-              placeholder="e.g. Push Day, Leg Day..."
+              placeholder="e.g. Push day, Leg day…"
               placeholderTextColor={COLORS.textFaint}
               autoFocus
               returnKeyType="done"
+              accessibilityLabel="Workout name"
             />
             <Text style={styles.saveExerciseList} numberOfLines={2}>
               {routine.map(e => e.name).join(' · ')}
             </Text>
             <View style={styles.saveButtons}>
-              <TouchableOpacity style={styles.skipBtn} onPress={doFinish}>
-                <Text style={styles.skipBtnText}>Skip</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.saveBtn, !templateName.trim() && { opacity: 0.4 }]}
-                onPress={saveAndFinish}
-                disabled={!templateName.trim()}
-              >
-                <Text style={styles.saveBtnText}>SAVE & FINISH</Text>
-              </TouchableOpacity>
+              <Button title="Skip" variant="secondary" size="md" onPress={doFinish} style={{ flex: 1 }} />
+              <Button title="Save & finish" size="md" onPress={saveAndFinish} disabled={!templateName.trim()} style={{ flex: 2 }} />
             </View>
           </View>
         </View>
       </Modal>
 
       {/* Exercise Picker Modal */}
-      <Modal visible={showExercisePicker} animationType="slide">
+      <Modal visible={showExercisePicker} animationType="slide" onRequestClose={() => setShowExercisePicker(false)}>
         <View style={styles.modal}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>ADD EXERCISE</Text>
-            <TouchableOpacity onPress={() => setShowExercisePicker(false)}>
-              <Text style={styles.modalClose}>CLOSE</Text>
-            </TouchableOpacity>
+          <ScreenHeader title="Add exercise" onBack={() => { setShowExercisePicker(false); setPickerQuery(''); }} />
+
+          <View style={styles.searchRow}>
+            <View style={styles.searchBox}>
+              <Feather name="search" size={17} color={COLORS.textDim} />
+              <TextInput
+                style={styles.searchInput}
+                value={pickerQuery}
+                onChangeText={setPickerQuery}
+                placeholder="Search exercise"
+                placeholderTextColor={COLORS.textDim}
+                accessibilityLabel="Search exercises"
+                returnKeyType="search"
+              />
+            </View>
           </View>
 
-          <ScrollView horizontal style={styles.muscleFilter} showsHorizontalScrollIndicator={false}>
-            {MUSCLES.map(muscle => (
-              <TouchableOpacity
-                key={muscle}
-                style={[styles.muscleChip, selectedMuscle === muscle && styles.muscleChipActive]}
-                onPress={() => setSelectedMuscle(muscle)}
-              >
-                <Text style={[styles.muscleChipText, selectedMuscle === muscle && styles.muscleChipTextActive]}>
-                  {muscle}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+          {!pickerQuery.trim() && (
+            <ScrollView horizontal style={styles.muscleFilter} contentContainerStyle={{ gap: 8, paddingHorizontal: SPACING.screen }} showsHorizontalScrollIndicator={false}>
+              {MUSCLES.map(muscle => {
+                const active = selectedMuscle === muscle;
+                return (
+                  <Pressable
+                    key={muscle}
+                    style={[styles.muscleChip, active && styles.muscleChipActive]}
+                    onPress={() => { haptic.tap(); setSelectedMuscle(muscle); }}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: active }}
+                  >
+                    <Text style={[styles.muscleChipText, active && styles.muscleChipTextActive]}>{muscle}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          )}
 
-          <ScrollView>
-            {filteredExercises.map(exercise => {
+          <ScrollView contentContainerStyle={{ paddingHorizontal: SPACING.screen, paddingBottom: 40 }}>
+            {pickerList.length === 0 && <Text style={styles.noTemplatesText}>No exercises match "{pickerQuery}".</Text>}
+            {pickerList.map(exercise => {
               const alreadyAdded = routineNames.has(exercise.name);
               return (
-                <TouchableOpacity
+                <PressableScale
                   key={exercise.name}
-                  style={[styles.exerciseOption, alreadyAdded && styles.exerciseOptionAdded]}
-                  onPress={() => !alreadyAdded && addExercise(exercise)}
-                  activeOpacity={alreadyAdded ? 1 : 0.7}
+                  style={[styles.pickRow, alreadyAdded && styles.pickRowAdded]}
+                  onPress={() => { if (!alreadyAdded) { addExercise(exercise); setPickerQuery(''); } }}
+                  disabled={alreadyAdded}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: alreadyAdded }}
+                  accessibilityLabel={`${exercise.name}, ${exercise.type}, ${exercise.repRange[0]} to ${exercise.repRange[1]} reps${alreadyAdded ? ', already added' : ''}`}
                 >
+                  <IconBadge gym={muscleIcon(exercise.muscle)} size={42} />
                   <View style={{ flex: 1 }}>
-                    <View style={styles.exerciseOptionHeader}>
-                      <Text style={[styles.exerciseOptionName, alreadyAdded && styles.exerciseOptionNameAdded]}>
-                        {exercise.name}
-                      </Text>
-                      {exercise.hd2Core && (
-                        <View style={styles.hd2Badge}><Text style={styles.hd2BadgeText}>HD2</Text></View>
-                      )}
-                      {alreadyAdded && <Text style={styles.addedTag}>✓ Added</Text>}
+                    <Text style={styles.pickName}>{exercise.name}</Text>
+                    <View style={styles.tagRow}>
+                      <Tag label={exercise.muscle} />
+                      <Tag label={exercise.type === 'compound' ? 'Compound' : 'Isolation'} color={COLORS.textSecondary} />
+                      {exercise.hd2Core && <Tag label="HD2" color={COLORS.gold} />}
                     </View>
-                    <Text style={styles.exerciseOptionDetail}>
-                      {exercise.type === 'compound' ? 'Compound' : 'Isolation'} · {exercise.repRange[0]}–{exercise.repRange[1]} reps
-                    </Text>
                   </View>
-                  {!alreadyAdded && <Text style={styles.chevron}>›</Text>}
-                </TouchableOpacity>
+                  <View style={[styles.checkBox, alreadyAdded && styles.checkBoxOn]}>
+                    <Feather name={alreadyAdded ? 'check' : 'plus'} size={15} color={alreadyAdded ? COLORS.onGold : COLORS.textMuted} />
+                  </View>
+                </PressableScale>
               );
             })}
           </ScrollView>
@@ -883,218 +886,285 @@ export default function WorkoutScreen({ navigation }) {
   );
 }
 
+// ─── Presentational pieces ───────────────────────────────────────────────────
+function LiveDot() {
+  const pulse = useLoop(1200);
+  return (
+    <View style={styles.liveDotWrap}>
+      <Animated.View style={[styles.liveDotRing, {
+        opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.7, 0] }),
+        transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.6, 2] }) }],
+      }]} />
+      <View style={styles.liveDot} />
+    </View>
+  );
+}
+
+function StatPill({ label, value, sub, highlight }) {
+  return (
+    <View style={[styles.statPill, highlight && styles.statPillHi]} accessible accessibilityLabel={`${label}: ${value}${sub ? `, ${sub}` : ''}`}>
+      <Text style={[styles.statLabel, highlight && { color: COLORS.gold }]}>{label}</Text>
+      <Text style={[styles.statValue, highlight && { color: COLORS.gold }]} numberOfLines={1} adjustsFontSizeToFit>{value}</Text>
+      {sub ? <Text style={styles.statSub} numberOfLines={1}>{sub}</Text> : null}
+    </View>
+  );
+}
+
+function Stepper({ label, unit, value, onChange, onMinus, onPlus, keyboardType, inputLabel, minusLabel, plusLabel }) {
+  return (
+    <View style={styles.stepper}>
+      <Text style={styles.stepLabel}>{label}</Text>
+      <View style={styles.stepControls}>
+        <PressableScale onPress={onMinus} hapticStyle="tap" scaleTo={0.88} style={styles.stepBtn} accessibilityRole="button" accessibilityLabel={minusLabel}>
+          <Feather name="minus" size={18} color={COLORS.white} />
+        </PressableScale>
+        <TextInput
+          style={styles.stepInput}
+          value={value}
+          onChangeText={onChange}
+          keyboardType={keyboardType}
+          accessibilityLabel={inputLabel}
+          selectTextOnFocus
+          placeholder="0"
+          placeholderTextColor={COLORS.textFaint}
+        />
+        <PressableScale onPress={onPlus} hapticStyle="tap" scaleTo={0.88} style={styles.stepBtn} accessibilityRole="button" accessibilityLabel={plusLabel}>
+          <Feather name="plus" size={18} color={COLORS.white} />
+        </PressableScale>
+      </View>
+      <Text style={styles.stepUnit}>{unit}</Text>
+    </View>
+  );
+}
+
+// Logged exercise: springs in with a success haptic; a PR gets a trophy burst
+function DoneCard({ exercise, data, onEdit }) {
+  const reduced = useReduceMotion();
+  const pop = useRef(new Animated.Value(reduced ? 1 : 0)).current;
+  const burst = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (data.isPR) haptic.heavy(); else haptic.success();
+    if (reduced) return;
+    Animated.spring(pop, { toValue: 1, useNativeDriver: Platform.OS !== 'web', damping: 11, stiffness: 160 }).start();
+    if (data.isPR) {
+      Animated.timing(burst, { toValue: 1, duration: 900, easing: Easing.out(Easing.cubic), useNativeDriver: Platform.OS !== 'web' }).start();
+    }
+  }, []);
+
+  const RAYS = 10;
+  return (
+    <View style={[styles.cardDone, data.isPR && styles.cardDonePR]} accessibilityLiveRegion="polite">
+      {data.isPR && <LinearGradient colors={GRADIENTS.heroGlow} start={{ x: 1, y: 0 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFill} />}
+      <View style={styles.doneHeader}>
+        <View style={styles.doneCheckWrap}>
+          {data.isPR && !reduced && Array.from({ length: RAYS }).map((_, i) => {
+            const angle = (i / RAYS) * 2 * Math.PI;
+            return (
+              <Animated.View
+                key={i}
+                pointerEvents="none"
+                style={[styles.ray, {
+                  opacity: burst.interpolate({ inputRange: [0, 0.2, 1], outputRange: [0, 1, 0] }),
+                  transform: [
+                    { translateX: burst.interpolate({ inputRange: [0, 1], outputRange: [0, Math.cos(angle) * 34] }) },
+                    { translateY: burst.interpolate({ inputRange: [0, 1], outputRange: [0, Math.sin(angle) * 34] }) },
+                  ],
+                }]}
+              />
+            );
+          })}
+          <Animated.View style={[styles.doneCheck, { transform: [{ scale: pop }] }]}>
+            <Feather name="check" size={18} color={COLORS.onGold} />
+          </Animated.View>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.doneName}>{exercise.name}</Text>
+          <Text style={styles.doneStats}>{data.weight}kg × {data.reps} reps</Text>
+        </View>
+        {data.isPR && (
+          <Animated.View style={[styles.prBadge, { transform: [{ scale: pop }] }]} accessible accessibilityLabel="New personal record">
+            <MaterialCommunityIcons name="trophy" size={14} color={COLORS.onGold} />
+            <Text style={styles.prBadgeText}>New PR</Text>
+          </Animated.View>
+        )}
+      </View>
+      {data.result && (
+        <View style={styles.doneResult}>
+          {data.result.progressNote && (
+            <Text style={styles.doneResultNote}>{data.result.progressNote}</Text>
+          )}
+          <View style={styles.doneNextRow}>
+            <Feather name="arrow-up-right" size={14} color={COLORS.gold} />
+            <Text style={styles.doneResultNext}>
+              Next session: {data.result.nextWeight}kg · {data.result.restDays}+ days rest
+            </Text>
+          </View>
+        </View>
+      )}
+      <Pressable
+        style={styles.editSetBtn}
+        onPress={onEdit}
+        accessibilityRole="button"
+        accessibilityLabel={`Edit logged ${exercise.name} set`}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <Feather name="edit-2" size={13} color={COLORS.textMuted} />
+        <Text style={styles.editSetBtnText}>EDIT</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
-
-  header: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingTop: 60, paddingHorizontal: SPACING.screen, paddingBottom: SPACING.md,
-    borderBottomWidth: 1, borderBottomColor: COLORS.surface,
-  },
-  backButton:   { color: COLORS.textMuted, fontSize: 13, fontWeight: FONT.medium, letterSpacing: 1 },
-  headerCenter: { alignItems: 'center' },
-  headerTitle:  { color: COLORS.white, fontSize: 14, fontWeight: FONT.black, letterSpacing: 3 },
-  timerBadge: {
-    marginTop: 4, backgroundColor: COLORS.surface, borderRadius: RADIUS.sm,
-    paddingHorizontal: 10, paddingVertical: 3, borderWidth: 1, borderColor: COLORS.border,
-  },
-  timerText:    { color: COLORS.gold, fontSize: 12, fontWeight: FONT.semibold, letterSpacing: 1 },
-  finishButton: { color: COLORS.gold, fontSize: 13, fontWeight: FONT.bold, letterSpacing: 1 },
-
-  content: { flex: 1, padding: SPACING.screen },
+  content:   { flex: 1, paddingHorizontal: SPACING.screen },
 
   // ── Picking phase ─────────────────────────────────────────────────────────────
-  sectionLabel: {
-    color: COLORS.textDim, fontSize: 10, fontWeight: FONT.semibold,
-    letterSpacing: 2.5, marginBottom: 12, marginTop: 8,
-  },
-  templateCard: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: COLORS.surface, borderRadius: RADIUS.xl,
-    borderWidth: 1.5, borderColor: COLORS.border,
-    padding: SPACING.md, marginBottom: 10,
-  },
-  templateCardMain:  { flex: 1 },
-  templateCardRight: { flexDirection: 'row', alignItems: 'center', gap: 10, marginLeft: 8 },
-  templateName:      { color: COLORS.white, fontSize: 17, fontWeight: FONT.bold, marginBottom: 4 },
-  templateExercises: { color: COLORS.textMuted, fontSize: 12, marginBottom: 4 },
-  templateCount:     { color: COLORS.textDim, fontSize: 10, letterSpacing: 1 },
-  deleteBtn: {
-    width: 28, height: 28, borderRadius: 14,
-    backgroundColor: COLORS.surfaceDark, borderWidth: 1, borderColor: COLORS.border,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  deleteBtnText:  { color: COLORS.textMuted, fontSize: 12 },
-  sectionDivider: { height: 1, backgroundColor: COLORS.border, marginVertical: 20 },
-  noTemplatesHint: {
-    borderWidth: 1, borderColor: COLORS.border, borderStyle: 'dashed',
-    borderRadius: RADIUS.lg, padding: 20, marginBottom: 20, alignItems: 'center',
-  },
+  pickContent:  { paddingHorizontal: SPACING.screen, paddingBottom: 60 },
+  sectionLabel: { ...TYPE.section, color: COLORS.white, marginTop: SPACING.xl, marginBottom: SPACING.md },
+  nextCard:     { borderRadius: RADIUS.xl, padding: SPACING.lg, overflow: 'hidden',
+                  backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.goldBorder },
+  nextChip:     { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start',
+                  backgroundColor: COLORS.goldFaint, borderRadius: RADIUS.pill, paddingHorizontal: 10, paddingVertical: 5 },
+  nextChipText: { ...TYPE.overline, color: COLORS.gold },
+  nextTitle:    { ...TYPE.title, fontSize: 26, lineHeight: 32, color: COLORS.white, marginTop: 12 },
+  nextMeta:     { color: COLORS.textMuted, fontSize: 13, marginTop: 4 },
+  nextList:     { marginTop: SPACING.md, gap: 10 },
+  nextRow:      { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  nextRowName:  { flex: 1, color: COLORS.white, fontSize: 15, fontWeight: FONT.semibold },
+  listCard:     { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: COLORS.surface,
+                  borderRadius: RADIUS.lg, padding: SPACING.md, marginBottom: 10 },
+  listCardMain: { flex: 1 },
+  listCardTitle:{ color: COLORS.white, fontSize: 16, fontWeight: FONT.bold },
+  listCardSub:  { color: COLORS.textDim, fontSize: 12, marginTop: 3 },
+  iconBtn:      { width: HIT, height: HIT, borderRadius: HIT / 2, alignItems: 'center', justifyContent: 'center' },
+  noTemplatesHint: { borderWidth: 1, borderColor: COLORS.border, borderStyle: 'dashed', borderRadius: RADIUS.lg,
+                     padding: 20, marginVertical: 20, alignItems: 'center' },
   noTemplatesText: { color: COLORS.textMuted, fontSize: 13, textAlign: 'center', lineHeight: 20 },
-  freshCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 14,
-    backgroundColor: COLORS.surface, borderRadius: RADIUS.xl,
-    borderWidth: 1.5, borderColor: COLORS.border, padding: SPACING.md,
-  },
-  freshIcon:    { color: COLORS.gold, fontSize: 24 },
-  freshTitle:   { color: COLORS.white, fontSize: 16, fontWeight: FONT.bold, marginBottom: 2 },
-  freshSubtitle:{ color: COLORS.textMuted, fontSize: 12 },
+  freshCard:    { flexDirection: 'row', alignItems: 'center', gap: 14, borderRadius: RADIUS.lg, padding: SPACING.md,
+                  marginTop: SPACING.lg, borderWidth: 1, borderColor: COLORS.borderStrong, borderStyle: 'dashed' },
 
-  // ── Active phase ──────────────────────────────────────────────────────────────
-  emptyCard: {
-    borderWidth: 1.5, borderColor: COLORS.border, borderStyle: 'dashed',
-    borderRadius: RADIUS.xl, padding: 40, alignItems: 'center', marginTop: 20,
-  },
-  emptyIcon:     { color: COLORS.textDim, fontSize: 28, marginBottom: 12 },
-  emptyTitle:    { color: COLORS.white, fontSize: 16, fontWeight: FONT.bold, letterSpacing: 2, marginBottom: 8 },
+  // ── Active phase header ───────────────────────────────────────────────────────
+  headerRight:   { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  timerPill:     { flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: COLORS.surface,
+                   borderRadius: RADIUS.pill, paddingHorizontal: 11, height: 36 },
+  timerText:     { color: COLORS.white, fontSize: 14, fontWeight: FONT.bold, fontVariant: ['tabular-nums'] },
+  finishBtn:     { height: 36, paddingHorizontal: 14, borderRadius: RADIUS.pill, backgroundColor: COLORS.surfaceRaised,
+                   alignItems: 'center', justifyContent: 'center' },
+  finishBtnReady:{ backgroundColor: COLORS.gold },
+  finishText:    { color: COLORS.gold, fontSize: 14, fontWeight: FONT.bold },
+  liveDotWrap:   { width: 10, height: 10, alignItems: 'center', justifyContent: 'center' },
+  liveDotRing:   { position: 'absolute', width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.red },
+  liveDot:       { width: 7, height: 7, borderRadius: 4, backgroundColor: COLORS.red },
+  progressWrap:  { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: SPACING.screen, marginBottom: SPACING.md },
+  progressTrack: { flex: 1, height: 6, borderRadius: 3, backgroundColor: COLORS.surfaceRaised, overflow: 'hidden' },
+  progressFill:  { height: 6, borderRadius: 3, overflow: 'hidden' },
+  progressText:  { color: COLORS.textMuted, fontSize: 12, fontWeight: FONT.bold, fontVariant: ['tabular-nums'] },
+
+  // ── Exercise cards ────────────────────────────────────────────────────────────
+  emptyCard:     { borderWidth: 1, borderColor: COLORS.borderStrong, borderStyle: 'dashed', borderRadius: RADIUS.xl,
+                   padding: 40, alignItems: 'center', marginTop: 20, gap: 10 },
+  emptyTitle:    { color: COLORS.white, fontSize: 17, fontWeight: FONT.bold, marginTop: 6 },
   emptySubtitle: { color: COLORS.textMuted, fontSize: 13, textAlign: 'center' },
 
-  card: {
-    backgroundColor: COLORS.surface, borderRadius: RADIUS.xl,
-    borderWidth: 1.5, borderColor: COLORS.border,
-    padding: SPACING.md, marginBottom: 14,
-  },
-  cardHeader:     { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 },
-  cardHeaderLeft: { flex: 1 },
-  exerciseName:   { color: COLORS.white, fontSize: 18, fontWeight: FONT.bold, marginBottom: 4 },
-  exerciseMeta:   { color: COLORS.textMuted, fontSize: 12, letterSpacing: 0.5 },
+  card:           { backgroundColor: COLORS.surface, borderRadius: RADIUS.xl, padding: SPACING.md, marginBottom: 12,
+                    borderWidth: 1, borderColor: 'transparent' },
+  cardCued:       { borderColor: COLORS.gold },
+  cardHeader:     { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
+  cardHeaderMain: { flex: 1 },
+  exerciseName:   { color: COLORS.white, fontSize: 18, fontWeight: FONT.bold, letterSpacing: -0.2 },
+  tagRow:         { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
 
-  hd2Badge:     { backgroundColor: COLORS.goldFaint, borderRadius: RADIUS.sm, paddingHorizontal: 7, paddingVertical: 3, borderWidth: 1, borderColor: COLORS.goldBorder, marginLeft: 8 },
-  hd2BadgeText: { color: COLORS.gold, fontSize: 9, fontWeight: FONT.black, letterSpacing: 1 },
+  supersetBanner:   { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: COLORS.goldFaint,
+                      borderRadius: RADIUS.md, paddingHorizontal: 12, paddingVertical: 9, marginBottom: 10 },
+  supersetBannerGo: { backgroundColor: COLORS.gold },
+  supersetNote:     { color: COLORS.gold, fontSize: 13, fontWeight: FONT.semibold, flex: 1 },
+  supersetCue:      { color: COLORS.onGold, fontSize: 13, fontWeight: FONT.black, flex: 1 },
 
-  prevRow:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  prevLabel: { color: COLORS.textDim, fontSize: 10, fontWeight: FONT.semibold, letterSpacing: 2 },
-  prevValue: { color: COLORS.textMuted, fontSize: 13, fontWeight: FONT.medium },
-  divider:   { height: 1, backgroundColor: COLORS.border, marginBottom: 14 },
+  statRow:    { flexDirection: 'row', gap: 8, marginBottom: 14 },
+  statPill:   { flex: 1, backgroundColor: COLORS.surfaceDark, borderRadius: RADIUS.md, paddingVertical: 10, paddingHorizontal: 8, alignItems: 'center' },
+  statPillHi: { backgroundColor: COLORS.goldFaint },
+  statLabel:  { color: COLORS.textDim, fontSize: 11, fontWeight: FONT.semibold },
+  statValue:  { color: COLORS.white, fontSize: 14, fontWeight: FONT.bold, marginTop: 3, fontVariant: ['tabular-nums'] },
+  statSub:    { color: COLORS.textDim, fontSize: 11, marginTop: 1 },
 
-  setRow:     { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  setRow:       { flexDirection: 'row', gap: 10 },
+  stepper:      { flex: 1, backgroundColor: COLORS.surfaceDark, borderRadius: RADIUS.lg, padding: 10, alignItems: 'center' },
+  stepLabel:    { color: COLORS.textDim, fontSize: 11, fontWeight: FONT.semibold, marginBottom: 6 },
+  stepControls: { flexDirection: 'row', alignItems: 'center', alignSelf: 'stretch', gap: 6 },
+  stepBtn:      { width: 40, height: 44, borderRadius: RADIUS.md, backgroundColor: COLORS.surfaceRaised,
+                  alignItems: 'center', justifyContent: 'center' },
+  stepInput:    { flex: 1, minWidth: 0, color: COLORS.white, fontSize: 24, fontWeight: FONT.black, textAlign: 'center',
+                  paddingVertical: 4, fontVariant: ['tabular-nums'] },
+  stepUnit:     { color: COLORS.textDim, fontSize: 11, marginTop: 4 },
 
-  inputGroup:      { alignItems: 'center' },
-  inputGroupLabel: { color: COLORS.textDim, fontSize: 9, fontWeight: FONT.semibold, letterSpacing: 2, marginBottom: 6 },
-  inputControls:   { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'stretch' },
-  inputUnit:       { color: COLORS.textDim, fontSize: 10, letterSpacing: 1, marginTop: 4 },
+  noteRow:     { flexDirection: 'row', gap: 8, marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: COLORS.border },
+  mentzerNote: { color: COLORS.textMuted, fontSize: 12, lineHeight: 18, flex: 1 },
 
-  adjBtn: {
-    width: 26, height: 36, borderRadius: RADIUS.sm,
-    backgroundColor: COLORS.surfaceDark, borderWidth: 1, borderColor: COLORS.border,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  adjBtnText: { color: COLORS.white, fontSize: 18, fontWeight: FONT.medium },
-
-  numberInput: {
-    flex: 1, backgroundColor: COLORS.surfaceDark, color: COLORS.white,
-    fontSize: 20, fontWeight: FONT.black, textAlign: 'center',
-    paddingVertical: 6, paddingHorizontal: 2,
-    borderRadius: RADIUS.md, borderWidth: 1, borderColor: COLORS.border,
-  },
-
-  completeBtn: {
-    width: 48, height: 48, borderRadius: 24,
-    borderWidth: 2, borderColor: COLORS.border,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  completeBtnReady:     { backgroundColor: COLORS.gold, borderColor: COLORS.gold },
-  completeBtnText:      { color: COLORS.textDim, fontSize: 20, fontWeight: FONT.bold },
-  completeBtnTextReady: { color: '#000' },
-
-  mentzerNote: {
-    color: COLORS.textDim, fontSize: 11, fontStyle: 'italic',
-    lineHeight: 16, marginTop: 14, borderTopWidth: 1,
-    borderTopColor: COLORS.border, paddingTop: 12,
-  },
-
-  cardDone: {
-    backgroundColor: '#0d120d', borderRadius: RADIUS.xl,
-    borderWidth: 1.5, borderColor: '#2a402a',
-    padding: SPACING.md, marginBottom: 14,
-  },
-  doneHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  doneLeft:   { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  doneCheck: {
-    width: 26, height: 26, borderRadius: 13,
-    backgroundColor: COLORS.green, alignItems: 'center', justifyContent: 'center',
-  },
-  doneCheckText:  { color: '#000', fontSize: 13, fontWeight: FONT.black },
+  // ── Logged exercise ───────────────────────────────────────────────────────────
+  cardDone:       { backgroundColor: COLORS.surface, borderRadius: RADIUS.xl, padding: SPACING.md, marginBottom: 12, overflow: 'hidden',
+                    borderWidth: 1, borderColor: COLORS.border },
+  cardDonePR:     { borderColor: COLORS.goldBorder },
+  doneHeader:     { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  doneCheckWrap:  { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  doneCheck:      { width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.gold, alignItems: 'center', justifyContent: 'center' },
+  ray:            { position: 'absolute', width: 5, height: 5, borderRadius: 3, backgroundColor: COLORS.goldBright },
   doneName:       { color: COLORS.white, fontSize: 16, fontWeight: FONT.bold },
-  doneStats:      { color: COLORS.green, fontSize: 22, fontWeight: FONT.black, marginBottom: 6, marginLeft: 36 },
-  doneResult:     { marginLeft: 36 },
-  doneResultNext: { color: COLORS.textMuted, fontSize: 12 },
+  doneStats:      { color: COLORS.gold, fontSize: 20, fontWeight: FONT.black, marginTop: 1, fontVariant: ['tabular-nums'] },
+  prBadge:        { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: COLORS.gold,
+                    borderRadius: RADIUS.pill, paddingHorizontal: 10, paddingVertical: 5 },
+  prBadgeText:    { color: COLORS.onGold, fontSize: 12, fontWeight: FONT.black },
+  doneResult:     { marginTop: 12, marginLeft: 52 },
+  doneResultNote: { color: COLORS.textSecondary, fontSize: 13, marginBottom: 4 },
+  doneNextRow:    { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  doneResultNext: { color: COLORS.textMuted, fontSize: 13 },
+  editSetBtn:     { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-end', marginTop: SPACING.sm,
+                    paddingVertical: 8, paddingHorizontal: 12, borderRadius: RADIUS.pill, backgroundColor: COLORS.surfaceRaised },
+  editSetBtnText: { color: COLORS.textMuted, fontSize: 11, fontWeight: FONT.bold, letterSpacing: 1.2 },
 
-  prBadge:     { backgroundColor: COLORS.goldFaint, borderRadius: RADIUS.sm, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: COLORS.goldBorder },
-  prBadgeText: { color: COLORS.gold, fontSize: 12, fontWeight: FONT.semibold },
-
-  addBtn:     { alignSelf: 'center', marginTop: 4, marginBottom: 8, paddingVertical: 10, paddingHorizontal: 24, borderRadius: RADIUS.lg, borderWidth: 1, borderColor: COLORS.border },
-  addBtnText: { color: COLORS.textMuted, fontSize: 12, fontWeight: FONT.semibold, letterSpacing: 2 },
+  addBtn:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4,
+                minHeight: HIT, borderRadius: RADIUS.lg, borderWidth: 1, borderColor: COLORS.borderStrong, borderStyle: 'dashed' },
+  addBtnText: { color: COLORS.gold, fontSize: 14, fontWeight: FONT.bold },
 
   // ── Rest timer ────────────────────────────────────────────────────────────────
-  restBar: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: '#141208', borderTopWidth: 1.5, borderTopColor: COLORS.goldBorder,
-    paddingHorizontal: SPACING.screen, paddingTop: 14, paddingBottom: 28,
-  },
-  restBarLeft:    { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  restDot:        { width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.gold },
-  restBarLabel:   { color: COLORS.gold, fontSize: 10, fontWeight: FONT.black, letterSpacing: 2, marginBottom: 2 },
-  restBarTime:    { color: COLORS.white, fontSize: 22, fontWeight: FONT.black },
-  restBarBtn:     { backgroundColor: COLORS.gold, borderRadius: RADIUS.lg, paddingHorizontal: 18, paddingVertical: 10 },
-  restBarBtnText: { color: '#000', fontSize: 12, fontWeight: FONT.black, letterSpacing: 1.5 },
+  restBar:      { position: 'absolute', bottom: 16, left: SPACING.screen, right: SPACING.screen,
+                  flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                  backgroundColor: COLORS.surfaceRaised, borderRadius: RADIUS.xl, padding: 12,
+                  borderWidth: 1, borderColor: COLORS.goldBorder,
+                  shadowColor: '#000', shadowOpacity: 0.6, shadowRadius: 20, shadowOffset: { width: 0, height: 8 }, elevation: 10 },
+  restBarLeft:  { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  restBarLabel: { color: COLORS.textMuted, fontSize: 12, fontWeight: FONT.semibold },
+  restBarTime:  { color: COLORS.white, fontSize: 24, fontWeight: FONT.black, fontVariant: ['tabular-nums'] },
 
   // ── Save template modal ───────────────────────────────────────────────────────
-  saveOverlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.85)',
-    justifyContent: 'center', alignItems: 'center', padding: SPACING.screen,
-  },
-  saveCard: {
-    backgroundColor: COLORS.surface, borderRadius: RADIUS.xl,
-    borderWidth: 1, borderColor: COLORS.border, padding: SPACING.lg, width: '100%',
-  },
-  saveTitle:        { color: COLORS.white, fontSize: 15, fontWeight: FONT.black, letterSpacing: 2, marginBottom: 6 },
-  saveSubtitle:     { color: COLORS.textMuted, fontSize: 13, marginBottom: 18 },
-  saveInput: {
-    backgroundColor: COLORS.surfaceDark, color: COLORS.white,
-    fontSize: 17, fontWeight: FONT.medium, padding: 14,
-    borderRadius: RADIUS.lg, borderWidth: 1, borderColor: COLORS.border, marginBottom: 10,
-  },
-  saveExerciseList: { color: COLORS.textDim, fontSize: 11, lineHeight: 16, marginBottom: 20 },
-  saveButtons:      { flexDirection: 'row', gap: 12 },
-  skipBtn:          { flex: 1, paddingVertical: 14, borderRadius: RADIUS.lg, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center' },
-  skipBtnText:      { color: COLORS.textMuted, fontSize: 13, fontWeight: FONT.medium },
-  saveBtn:          { flex: 2, backgroundColor: COLORS.gold, paddingVertical: 14, borderRadius: RADIUS.lg, alignItems: 'center' },
-  saveBtnText:      { color: '#000', fontSize: 13, fontWeight: FONT.black, letterSpacing: 1 },
+  saveOverlay:      { flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'center', alignItems: 'center', padding: SPACING.screen },
+  saveCard:         { backgroundColor: COLORS.surface, borderRadius: RADIUS.xl, padding: SPACING.xl, width: '100%', maxWidth: 440 },
+  saveTitle:        { ...TYPE.title, color: COLORS.white, marginBottom: 4 },
+  saveSubtitle:     { color: COLORS.textMuted, fontSize: 14, marginBottom: 18 },
+  saveInput:        { backgroundColor: COLORS.surfaceDark, color: COLORS.white, fontSize: 17, fontWeight: FONT.medium,
+                      paddingHorizontal: 14, minHeight: 52, borderRadius: RADIUS.md, marginBottom: 10 },
+  saveExerciseList: { color: COLORS.textDim, fontSize: 12, lineHeight: 17, marginBottom: 20 },
+  saveButtons:      { flexDirection: 'row', gap: 10 },
 
   // ── Exercise picker modal ─────────────────────────────────────────────────────
-  modal: { flex: 1, backgroundColor: COLORS.background },
-  modalHeader: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingTop: 60, paddingHorizontal: SPACING.screen, paddingBottom: SPACING.md,
-    borderBottomWidth: 1, borderBottomColor: COLORS.surface,
-  },
-  modalTitle: { color: COLORS.white, fontSize: 16, fontWeight: FONT.black, letterSpacing: 3 },
-  modalClose: { color: COLORS.gold, fontSize: 13, fontWeight: FONT.semibold, letterSpacing: 1 },
+  modal:       { flex: 1, backgroundColor: COLORS.background },
+  searchRow:   { paddingHorizontal: SPACING.screen, marginBottom: SPACING.md },
+  searchBox:   { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: COLORS.surface,
+                 borderRadius: RADIUS.md, paddingHorizontal: 14, minHeight: 48 },
+  searchInput: { flex: 1, color: COLORS.white, fontSize: 15, paddingVertical: 10 },
 
-  muscleFilter:         { paddingHorizontal: SPACING.screen, paddingVertical: SPACING.md, maxHeight: 64 },
-  muscleChip:           { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: COLORS.surface, marginRight: SPACING.sm, borderWidth: 1, borderColor: COLORS.border },
-  muscleChipActive:     { backgroundColor: COLORS.gold, borderColor: COLORS.gold },
-  muscleChipText:       { color: '#999', fontSize: 12, fontWeight: FONT.medium },
-  muscleChipTextActive: { color: '#000', fontWeight: FONT.bold },
+  muscleFilter:         { flexGrow: 0, marginBottom: SPACING.md },
+  muscleChip:           { paddingHorizontal: 16, height: 36, justifyContent: 'center', borderRadius: RADIUS.pill, backgroundColor: COLORS.surface },
+  muscleChipActive:     { backgroundColor: COLORS.gold },
+  muscleChipText:       { color: COLORS.textMuted, fontSize: 13, fontWeight: FONT.semibold },
+  muscleChipTextActive: { color: COLORS.onGold, fontWeight: FONT.bold },
 
-  exerciseOption:          { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SPACING.screen, paddingVertical: SPACING.md, borderBottomWidth: 1, borderBottomColor: COLORS.surface },
-  exerciseOptionAdded:     { opacity: 0.45 },
-  exerciseOptionHeader:    { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: 4 },
-  exerciseOptionName:      { color: COLORS.white, fontSize: 16, fontWeight: FONT.medium },
-  exerciseOptionNameAdded: { color: COLORS.textMuted },
-  exerciseOptionDetail:    { color: '#888', fontSize: 12 },
-  addedTag:                { color: COLORS.green, fontSize: 11, fontWeight: FONT.medium },
-  chevron:                 { color: COLORS.textMuted, fontSize: 24 },
-
-  // ── Programme / targets ───────────────────────────────────────────────────────
-  programmeCardNext: { borderColor: COLORS.goldBorder },
-  nextUpTag:         { color: COLORS.gold, fontSize: 10, fontWeight: FONT.black, letterSpacing: 2, marginBottom: 4 },
-  targetValue:       { color: COLORS.gold, fontWeight: FONT.bold },
-  supersetNote:      { color: COLORS.gold, fontSize: 10, fontWeight: FONT.semibold, letterSpacing: 1, marginBottom: 10 },
-  supersetCue:       { color: COLORS.gold, fontSize: 12, fontWeight: FONT.black, letterSpacing: 1, marginBottom: 10 },
-  doneResultNote:    { color: COLORS.textMuted, fontSize: 12, marginBottom: 2 },
-  editSetBtn:        { alignSelf: 'flex-end', marginTop: SPACING.sm, paddingVertical: 4, paddingHorizontal: 8 },
-  editSetBtnText:    { color: COLORS.textMuted, fontSize: 11, fontWeight: FONT.semibold, letterSpacing: 1.5 },
+  pickRow:      { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: COLORS.surface,
+                  borderRadius: RADIUS.lg, padding: 12, marginBottom: 8 },
+  pickRowAdded: { opacity: 0.55 },
+  pickName:     { color: COLORS.white, fontSize: 16, fontWeight: FONT.bold },
+  checkBox:     { width: 30, height: 30, borderRadius: 8, borderWidth: 1.5, borderColor: COLORS.borderStrong,
+                  alignItems: 'center', justifyContent: 'center' },
+  checkBoxOn:   { backgroundColor: COLORS.gold, borderColor: COLORS.gold },
 });

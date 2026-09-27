@@ -7,13 +7,15 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import Card from '../components/Card';
+import { LinearGradient } from 'expo-linear-gradient';
+import { IconBadge } from '../components/Badges';
 import Button from '../components/Button';
 import ScreenHeader from '../components/ScreenHeader';
 import SectionTitle from '../components/SectionTitle';
 import CalorieSlider from '../components/CalorieSlider';
 import { SURPLUS_RANGE, DEFICIT_RANGE } from '../data/calorieRanges';
 import { useUnits, kgToDisplay, displayToKg, cmToFtIn, ftInToCm } from '../lib/units';
-import { COLORS, FONT, TYPE, RADIUS, SPACING, HIT } from '../theme';
+import { COLORS, GRADIENTS, FONT, TYPE, RADIUS, SPACING, HIT } from '../theme';
 
 export default function ProfileScreen({ navigation }) {
   const [profile, setProfile] = useState(null);
@@ -145,7 +147,7 @@ export default function ProfileScreen({ navigation }) {
       >
         <ScreenHeader
           title="Profile"
-          subtitle="YOU & YOUR TARGETS"
+          subtitle="You & your targets"
           right={
             <Pressable
               onPress={() => navigation.navigate('Settings')}
@@ -220,15 +222,17 @@ export default function ProfileScreen({ navigation }) {
                 </>
               )}
 
-              <Button title="SAVE CHANGES" onPress={saveProfile} loading={saving} style={{ marginTop: SPACING.lg }} />
+              <Button title="Save changes" onPress={saveProfile} loading={saving} style={{ marginTop: SPACING.lg }} />
               <Button title="Cancel" variant="ghost" size="md" onPress={() => { setEditing(false); loadData(); }} style={{ marginTop: SPACING.sm }} />
             </>
           ) : (
             <>
               <View style={styles.profileRow}>
-                <View style={styles.avatar} accessibilityElementsHidden importantForAccessibility="no">
-                  <Text style={styles.avatarText}>{initial}</Text>
-                </View>
+                <LinearGradient colors={GRADIENTS.gold} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.avatarRing}>
+                  <View style={styles.avatar} accessibilityElementsHidden importantForAccessibility="no">
+                    <Text style={styles.avatarText}>{initial}</Text>
+                  </View>
+                </LinearGradient>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.profileName} numberOfLines={1}>{profile?.name || 'Athlete'}</Text>
                   {profile?.email ? <Text style={styles.profileEmail} numberOfLines={1}>{profile.email}</Text> : null}
@@ -254,7 +258,7 @@ export default function ProfileScreen({ navigation }) {
         {calorieTarget && (
           <>
             <SectionTitle
-              title="NUTRITION TARGETS"
+              title="Nutrition targets"
               right={<View style={styles.goalBadge}><Text style={styles.goalBadgeText}>{getGoalLabel()}</Text></View>}
             />
             <Card style={styles.cardSpacingTight}>
@@ -288,7 +292,7 @@ export default function ProfileScreen({ navigation }) {
         )}
 
         {/* Heavy Duty protocol */}
-        <SectionTitle title="HEAVY DUTY PROTOCOL" />
+        <SectionTitle title="Heavy Duty protocol" />
         <Card style={[styles.cardSpacingTight, { paddingVertical: 4 }]}>
           <InfoRow
             icon="calendar"
@@ -300,7 +304,7 @@ export default function ProfileScreen({ navigation }) {
           <InfoRow icon="clock" label="Between exercises" value="Only as long as needed" last />
         </Card>
 
-        <Button title="SIGN OUT" variant="secondary" icon="log-out" onPress={signOut} style={styles.signOut} />
+        <Button title="Sign out" variant="secondary" icon="log-out" onPress={signOut} style={styles.signOut} />
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -345,7 +349,7 @@ function Macro({ value, label, sub }) {
 function InfoRow({ icon, label, value, last }) {
   return (
     <View style={[styles.infoRow, !last && styles.infoRowBorder]} accessible accessibilityLabel={`${label}: ${value}`}>
-      <Feather name={icon} size={16} color={COLORS.gold} />
+      <IconBadge icon={icon} size={34} />
       <Text style={styles.infoLabel}>{label}</Text>
       <Text style={styles.infoValue}>{value}</Text>
     </View>
@@ -361,8 +365,8 @@ const styles = StyleSheet.create({
 
   // Profile card
   profileRow:       { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: SPACING.lg },
-  avatar:           { width: 52, height: 52, borderRadius: 26, backgroundColor: COLORS.goldFaint,
-                      borderWidth: 1, borderColor: COLORS.goldBorder, alignItems: 'center', justifyContent: 'center' },
+  avatarRing:       { width: 56, height: 56, borderRadius: 28, padding: 2 },
+  avatar:           { flex: 1, borderRadius: 26, backgroundColor: COLORS.surface, alignItems: 'center', justifyContent: 'center' },
   avatarText:       { color: COLORS.gold, fontSize: 22, fontWeight: FONT.black },
   profileName:      { ...TYPE.title, color: COLORS.white },
   profileEmail:     { ...TYPE.caption, color: COLORS.textDim, marginTop: 2 },

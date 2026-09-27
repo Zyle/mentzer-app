@@ -5,6 +5,7 @@
       "name": "Mentzer Method (web)",
       "runtimeExecutable": "npx",
       "runtimeArgs": ["expo", "start", "--web", "--port", "8090"],
+      "env": { "EXPO_PUBLIC_DEMO": "1" },
       "port": 8090
     }
   ]

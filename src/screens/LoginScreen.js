@@ -91,6 +91,7 @@ export default function LoginScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.brand}>
+          <View style={styles.glow} pointerEvents="none" />
           <Text style={styles.logo} accessibilityRole="header">MENTZER</Text>
           <Text style={styles.subtitle}>HEAVY DUTY</Text>
         </View>
@@ -217,7 +218,7 @@ export default function LoginScreen() {
           {resetStep ? (
             <>
               <Button
-                title={resetStep === 'request' ? 'SEND CODE' : 'SET NEW PASSWORD'}
+                title={resetStep === 'request' ? 'Send code' : 'Set new password'}
                 onPress={resetStep === 'request' ? requestReset : confirmReset}
                 loading={loading}
                 style={{ marginTop: SPACING.lg }}
@@ -229,7 +230,7 @@ export default function LoginScreen() {
             </>
           ) : (
           <Button
-            title={isSignUp ? 'CREATE ACCOUNT' : 'SIGN IN'}
+            title={isSignUp ? 'Create account' : 'Sign in'}
             onPress={handleAuth}
             loading={loading}
             style={{ marginTop: SPACING.lg }}
@@ -258,7 +259,9 @@ const styles = StyleSheet.create({
   inner:     { flexGrow: 1, justifyContent: 'center', paddingHorizontal: SPACING.xl, maxWidth: 480, width: '100%', alignSelf: 'center' },
 
   brand:    { marginBottom: SPACING.xxl },
-  logo:     { fontSize: 40, fontWeight: FONT.black, color: COLORS.white, letterSpacing: 8 },
+  glow:     { position: 'absolute', top: -120, left: -120, width: 320, height: 320, borderRadius: 160,
+              backgroundColor: COLORS.goldGlow, opacity: 0.5 },
+  logo:     { fontSize: 40, fontWeight: FONT.black, color: COLORS.gold, letterSpacing: 8 },
   subtitle: { fontSize: 12, fontWeight: FONT.semibold, color: COLORS.gold, letterSpacing: 6, marginTop: 4 },
 
   tagline:  { ...TYPE.display, color: COLORS.white, marginBottom: SPACING.md },

@@ -1,35 +1,45 @@
 import React from 'react';
-import { View, Pressable, StyleSheet } from 'react-native';
-import { COLORS, RADIUS, SPACING } from '../theme';
+import { View, StyleSheet } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { PressableScale } from '../lib/motion';
+import { COLORS, GRADIENTS, RADIUS, SPACING } from '../theme';
 
 /**
- * Standard dark card used throughout the app.
- * Pass `style` to override margins or add accent borders.
- * Pass `onPress` (plus `accessibilityLabel`) to make the whole card a button.
+ * Standard card used throughout the app — soft charcoal, no border.
  *
- * Examples:
- *   <Card style={{ marginHorizontal: 20, marginBottom: 14 }}>
- *   <Card accent={COLORS.gold}>
- *   <Card onPress={open} accessibilityLabel="Open calorie tracker">
+ *   <Card style={{ marginHorizontal: 18 }}>
+ *   <Card accent={COLORS.gold}>                       gold left edge
+ *   <Card gradient>                                    subtle top-lit gradient
+ *   <Card onPress={open} accessibilityLabel="…">       whole card is a button (springs + haptic)
  */
-export default function Card({ children, style, accent, onPress, accessibilityLabel, accessibilityHint }) {
+export default function Card({ children, style, accent, gradient, onPress, accessibilityLabel, accessibilityHint }) {
   const base = [styles.card, accent && { borderLeftWidth: 3, borderLeftColor: accent }, style];
+  const fill = gradient ? (
+    <LinearGradient
+      colors={GRADIENTS.card}
+      style={[StyleSheet.absoluteFill, { borderRadius: RADIUS.xl }]}
+      pointerEvents="none"
+    />
+  ) : null;
 
   if (onPress) {
     return (
-      <Pressable
+      <PressableScale
         onPress={onPress}
+        hapticStyle="tap"
+        scaleTo={0.985}
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
         accessibilityHint={accessibilityHint}
-        style={({ pressed }) => [...base, pressed && styles.pressed]}
+        style={base}
       >
+        {fill}
         {children}
-      </Pressable>
+      </PressableScale>
     );
   }
 
-  return <View style={base}>{children}</View>;
+  return <View style={base}>{fill}{children}</View>;
 }
 
 const styles = StyleSheet.create({
@@ -37,8 +47,6 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surface,
     borderRadius: RADIUS.xl,
     padding: SPACING.lg,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    overflow: 'hidden',
   },
-  pressed: { backgroundColor: COLORS.surfaceRaised },
 });

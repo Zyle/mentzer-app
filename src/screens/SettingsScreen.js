@@ -6,6 +6,7 @@ import {
 import { Feather } from '@expo/vector-icons';
 import Button from '../components/Button';
 import ScreenHeader from '../components/ScreenHeader';
+import { IconBadge } from '../components/Badges';
 import { useUnits, kgToDisplay } from '../lib/units';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
@@ -193,7 +194,7 @@ export default function SettingsScreen({ navigation }) {
       <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
 
         {/* ── TRAINING GOAL ──────────────────────────────────────────────────── */}
-        <Text style={styles.sectionLabel} accessibilityRole="header">TRAINING GOAL</Text>
+        <Text style={styles.sectionLabel} accessibilityRole="header">Training goal</Text>
         <View style={styles.card} accessibilityRole="radiogroup">
           {GOALS.map((g, i) => (
             <OptionRow
@@ -209,7 +210,7 @@ export default function SettingsScreen({ navigation }) {
         </View>
 
         {/* ── UNITS ──────────────────────────────────────────────────────────── */}
-        <Text style={styles.sectionLabel} accessibilityRole="header">UNITS</Text>
+        <Text style={styles.sectionLabel} accessibilityRole="header">Units</Text>
         <View style={styles.card} accessibilityRole="radiogroup">
           {[
             { key: 'metric',   label: 'Metric',   sub: 'Kilograms · centimetres' },
@@ -227,7 +228,7 @@ export default function SettingsScreen({ navigation }) {
         </View>
 
         {/* ── WEIGHT INCREMENT ────────────────────────────────────────────────── */}
-        <Text style={styles.sectionLabel} accessibilityRole="header">WEIGHT INCREMENT</Text>
+        <Text style={styles.sectionLabel} accessibilityRole="header">Weight increment</Text>
         <View style={styles.card} accessibilityRole="radiogroup">
           {INCREMENTS.map((inc, i) => (
             <OptionRow
@@ -242,7 +243,7 @@ export default function SettingsScreen({ navigation }) {
         </View>
 
         {/* ── NOTIFICATIONS ────────────────────────────────────────────────────── */}
-        <Text style={styles.sectionLabel} accessibilityRole="header">NOTIFICATIONS</Text>
+        <Text style={styles.sectionLabel} accessibilityRole="header">Notifications</Text>
         <View style={styles.card}>
           <View style={[styles.row, styles.rowBorder]}>
             <View style={{ flex: 1 }}>
@@ -275,7 +276,7 @@ export default function SettingsScreen({ navigation }) {
         </View>
 
         {/* ── ACCOUNT ──────────────────────────────────────────────────────────── */}
-        <Text style={styles.sectionLabel} accessibilityRole="header">ACCOUNT</Text>
+        <Text style={styles.sectionLabel} accessibilityRole="header">Account</Text>
         <View style={styles.card}>
           <LinkRow icon="mail" label="Change email" onPress={() => setEmailModal(true)} border />
           <LinkRow icon="lock" label="Change password" onPress={() => setPasswordModal(true)} border />
@@ -303,7 +304,7 @@ export default function SettingsScreen({ navigation }) {
         <View style={styles.modalButtons}>
           <Button title="Cancel" variant="secondary" size="md" style={{ flex: 1 }}
             onPress={() => { setEmailModal(false); setNewEmail(''); }} />
-          <Button title="CONFIRM" size="md" style={{ flex: 1.4 }}
+          <Button title="Confirm" size="md" style={{ flex: 1.4 }}
             onPress={changeEmail} disabled={!newEmail.trim()} loading={accountLoading} />
         </View>
       </Sheet>
@@ -336,7 +337,7 @@ export default function SettingsScreen({ navigation }) {
         <View style={styles.modalButtons}>
           <Button title="Cancel" variant="secondary" size="md" style={{ flex: 1 }}
             onPress={() => { setPasswordModal(false); setNewPassword(''); setConfirmPassword(''); }} />
-          <Button title="CONFIRM" size="md" style={{ flex: 1.4 }}
+          <Button title="Confirm" size="md" style={{ flex: 1.4 }}
             onPress={changePassword} disabled={newPassword.length < 6} loading={accountLoading} />
         </View>
       </Sheet>
@@ -360,7 +361,7 @@ export default function SettingsScreen({ navigation }) {
         <View style={styles.modalButtons}>
           <Button title="Cancel" variant="secondary" size="md" style={{ flex: 1 }}
             onPress={() => { setDeleteModal(false); setDeleteConfirm(''); }} />
-          <Button title="DELETE" variant="danger" size="md" style={{ flex: 1.4 }}
+          <Button title="Delete" variant="danger" size="md" style={{ flex: 1.4 }}
             onPress={deleteAccount} disabled={deleteConfirm !== 'DELETE'} loading={accountLoading} />
         </View>
       </Sheet>
@@ -398,7 +399,7 @@ function LinkRow({ icon, label, onPress, border, danger }) {
       accessibilityRole="button"
       accessibilityLabel={label}
     >
-      <Feather name={icon} size={18} color={danger ? COLORS.red : COLORS.textMuted} />
+      <IconBadge icon={icon} size={36} color={danger ? COLORS.red : COLORS.gold} />
       <Text style={[styles.optionLabel, { color, flex: 1, marginBottom: 0, marginLeft: 12 }]}>{label}</Text>
       {!danger && <Feather name="chevron-right" size={18} color={COLORS.textDim} />}
     </Pressable>
@@ -422,7 +423,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
 
   content:      { flex: 1, paddingHorizontal: SPACING.screen, paddingTop: SPACING.sm },
-  sectionLabel: { ...TYPE.overline, color: COLORS.textDim, marginBottom: 8, marginTop: SPACING.lg },
+  sectionLabel: { ...TYPE.section, color: COLORS.white, marginBottom: 10, marginTop: SPACING.xl },
 
   card: {
     backgroundColor: COLORS.surface, borderRadius: RADIUS.lg,

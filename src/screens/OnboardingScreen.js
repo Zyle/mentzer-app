@@ -564,9 +564,9 @@ export default function OnboardingScreen({ onComplete }) {
       {/* Footer */}
       <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
         {step === 6 ? (
-          <Button title="START TRAINING" onPress={saveProfile} loading={saving} />
+          <Button title="Start training" onPress={saveProfile} loading={saving} />
         ) : (
-          <Button title="CONTINUE" onPress={next} />
+          <Button title="Continue" onPress={next} />
         )}
       </View>
     </KeyboardAvoidingView>
